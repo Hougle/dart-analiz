@@ -1,6 +1,6 @@
 """
 DartCounter API Client v2
-Maç verilerini DartCounter API'sinden çeker ve SQLite'a yazar.
+Maç verilerini DartCounter API'sinden çeker ve Turso'ya yazar.
 """
 import os
 import sqlite3
@@ -10,9 +10,55 @@ from pathlib import Path
 import sys
 
 # --- AYARLAR ---
-DB_PATH = "dart.db"
+DB_PATH = "dart.db"  # Lokal fallback (import sırasında kullanılır)
 ENV_FILE = ".env"
 API_BASE = "https://api.dartcounter.net"
+
+
+def _get_turso_credentials():
+    """Turso URL ve token'ı Streamlit secrets veya .env'den alır."""
+    # 1) Streamlit Cloud (st.secrets)
+    try:
+        import streamlit as st
+        url = st.secrets.get("TURSO_DATABASE_URL")
+        token = st.secrets.get("TURSO_AUTH_TOKEN")
+        if url and token:
+            return url, token
+    except Exception:
+        pass
+
+    # 2) Lokal .env
+    env_path = Path(ENV_FILE)
+    if env_path.exists():
+        url = token = None
+        for line in env_path.read_text().splitlines():
+            line = line.strip()
+            if line.startswith("TURSO_DATABASE_URL="):
+                url = line.split("=", 1)[1].strip().strip('"').strip("'")
+            elif line.startswith("TURSO_AUTH_TOKEN="):
+                token = line.split("=", 1)[1].strip().strip('"').strip("'")
+        if url and token:
+            return url, token
+
+    return None, None
+
+
+def get_db_connection():
+    """
+    Turso varsa Turso'ya bağlanır, yoksa lokal SQLite'a düşer.
+    Tüm import script'leri bu fonksiyonu kullanmalı.
+    """
+    url, token = _get_turso_credentials()
+    if url and token:
+        try:
+            import libsql_experimental as libsql
+            conn = libsql.connect(database=url, auth_token=token)
+            return conn
+        except ImportError:
+            print("⚠ libsql_experimental yüklü değil, lokal SQLite'a düşülüyor.")
+        except Exception as e:
+            print(f"⚠ Turso bağlantı hatası: {e}, lokal SQLite'a düşülüyor.")
+    return sqlite3.connect(DB_PATH)
 
 
 def load_token():
@@ -34,7 +80,7 @@ def load_token():
     for line in env_path.read_text().splitlines():
         line = line.strip()
         if line.startswith("DARTCOUNTER_TOKEN="):
-            return line.split("=", 1)[1].strip()
+            return line.split("=", 1)[1].strip().strip('"').strip("'")
     raise ValueError("DARTCOUNTER_TOKEN bulunamadı.")
 
 
@@ -62,8 +108,11 @@ def parse_match_id(url_or_id):
     return url_or_id
 
 
-def setup_database():
-    conn = sqlite3.connect(DB_PATH)
+def setup_database(conn=None):
+    """Tabloları oluşturur. conn verilmezse yeni bağlantı açar."""
+    own = conn is None
+    if own:
+        conn = get_db_connection()
     c = conn.cursor()
     c.executescript("""
     CREATE TABLE IF NOT EXISTS matches (
@@ -115,6 +164,8 @@ def setup_database():
     );
     """)
     conn.commit()
+    if own:
+        conn.close()
     return conn
 
 
@@ -132,20 +183,17 @@ def save_match(conn, data):
         print(f"  ⏭  {match_id[:8]} zaten kayıtlı, atlanıyor.")
         return False
 
-    # --- Tarih ---
     started_at = data.get("started_at")
     if isinstance(started_at, (int, float)):
         date_str = datetime.fromtimestamp(started_at).strftime("%Y-%m-%d %H:%M")
     else:
         date_str = str(started_at or "")
 
-    # --- Oyun tipi ---
     settings = data.get("settings", {})
     start_score = settings.get("start_score", 501)
     goal_amount = settings.get("goal_amount", 1)
     game_type = f"Best of {goal_amount} - {start_score}"
 
-    # --- Oyuncular ---
     users = data.get("users", [])
     if len(users) < 2:
         print(f"  ⚠  {match_id[:8]}: 2 oyuncu yok, atlanıyor.")
@@ -173,11 +221,9 @@ def save_match(conn, data):
         except (ValueError, TypeError):
             return None
 
-    # 180 sayısını hesapla (throws içinden - aşağıda doldurulacak)
     p1_180s = 0
     p2_180s = 0
 
-    # --- matches tablosu ---
     c.execute("""INSERT INTO matches
                  (match_id, date, game_type, player1_name, player2_name,
                   p1_user_id, p2_user_id, p1_result, p2_result,
@@ -206,7 +252,6 @@ def save_match(conn, data):
                safe_float(p2.get("checkout_rate")),
                p1_180s, p2_180s, "api"))
 
-    # --- Legs ---
     legs = data.get("legs", [])
     leg_no = 0
     for leg in legs:
@@ -214,11 +259,9 @@ def save_match(conn, data):
         leg_id = leg["leg_id"]
         winner_muid = leg.get("winner_match_user_id")
 
-        # Winner ismi bul
         winner_name = None
         for lu in leg.get("users", []):
             if lu.get("match_user_id") == winner_muid:
-                # users[] tablosundan ismi çek
                 for u in users:
                     if u.get("user_id") == lu.get("user_id"):
                         winner_name = u.get("player_name")
@@ -228,10 +271,8 @@ def save_match(conn, data):
         c.execute("INSERT INTO legs (leg_id, match_id, leg_no, winner_name, winner_match_user_id) VALUES (?, ?, ?, ?, ?)",
                   (leg_id, match_id, leg_no, winner_name, winner_muid))
 
-        # --- Atışlar (bu leg'in her oyuncusu için) ---
         for leg_user in leg.get("users", []):
             uid = leg_user.get("user_id")
-            # İsim bul
             p_name = None
             for u in users:
                 if u.get("user_id") == uid:
@@ -245,14 +286,12 @@ def save_match(conn, data):
                 remaining_after = turn.get("remaining_score")
                 darts = turn.get("darts_thrown") or 3
 
-                # remaining_before: bir önceki turun remaining_after'ı
                 if turn_no == 1:
                     remaining_before = start_score
                 else:
                     prev = turns[turn_no - 2].get("remaining_score")
                     remaining_before = prev if prev is not None else start_score
 
-                # 180 kontrolü
                 if score == 180:
                     if uid == p1_uid:
                         p1_180s += 1
@@ -268,7 +307,6 @@ def save_match(conn, data):
                            leg_id, match_id, turn_no, p_name, uid,
                            remaining_before, score, remaining_after, darts))
 
-    # 180 sayılarını güncelle
     c.execute("UPDATE matches SET p1_180s=?, p2_180s=? WHERE match_id=?",
               (p1_180s, p2_180s, match_id))
 
@@ -291,7 +329,8 @@ def import_match(url_or_id, conn, token):
 
 def main():
     token = load_token()
-    conn = setup_database()
+    conn = get_db_connection()
+    setup_database(conn)
 
     if len(sys.argv) > 1:
         urls = sys.argv[1:]

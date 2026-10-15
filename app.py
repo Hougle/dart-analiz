@@ -21,7 +21,6 @@ LANG = st.sidebar.radio("🌐 Dil / Language", ["TR", "EN"], horizontal=True, ke
 
 EN = {
     "🎯 DartCounter Analiz Panosu": "🎯 DartCounter Analysis Dashboard",
-    # token yardımı
     "⚠️ DartCounter token'ı bulunamadı veya geçersiz.": "⚠️ DartCounter token not found or invalid.",
     "### 🔑 Token Nasıl Alınır?": "### 🔑 How to get the token",
     "**1.** Tarayıcıda DartCounter'a giriş yap: `https://app.dartcounter.net`": "**1.** Log in to DartCounter in your browser: `https://app.dartcounter.net`",
@@ -36,7 +35,6 @@ EN = {
     "**10.** Proje klasöründeki `.env` dosyasına yaz: `DARTCOUNTER_TOKEN=37520203|AbCdEf...`": "**10.** Put it in the `.env` file in the project folder: `DARTCOUNTER_TOKEN=37520203|AbCdEf...`",
     "**11.** Kaydet ve sayfayı yenile.": "**11.** Save and refresh the page.",
     "💡 Token'ı bir kere aldıktan sonra uzun süre kullanabilirsin.": "💡 Once you have the token you can use it for a long time.",
-    # sidebar
     "🔑 Token Nasıl Alınır?": "🔑 How to get the token",
     "✅ Token aktif": "✅ Token active",
     "⚙️ İşlemler": "⚙️ Actions",
@@ -61,7 +59,6 @@ EN = {
     "Oyuncu": "Player",
     "Veritabanı": "Database",
     "Henüz veri yok. Sidebar'dan 🔄 YENİ MAÇLARI ÇEK butonuna bas.": "No data yet. Press the 🔄 FETCH NEW MATCHES button in the sidebar.",
-    # metrikler
     "Toplam Maç": "Total Matches",
     "Galibiyet": "Wins",
     "Mağlubiyet": "Losses",
@@ -69,7 +66,6 @@ EN = {
     "Ham Ort.": "Raw Avg.",
     "Adjusted": "Adjusted",
     "180 / 100+": "180s / 100+",
-    # sekmeler
     "📊 Genel Bakış": "📊 Overview",
     "📈 Gelişim": "📈 Progress",
     "👥 Rakipler": "👥 Opponents",
@@ -77,7 +73,6 @@ EN = {
     "🏆 En İyi / En Kötü": "🏆 Best / Worst",
     "📋 Maç Listesi": "📋 Match List",
     "🎯 Practice": "🎯 Practice",
-    # ortak sütunlar
     "Tarih": "Date",
     "Rakip": "Opponent",
     "Sonuç": "Result",
@@ -86,13 +81,11 @@ EN = {
     "Ortalama": "Average",
     "✅ Kazandı": "✅ Won",
     "❌ Kaybetti": "❌ Lost",
-    # genel bakış
     "Son 10 Maç": "Last 10 Matches",
     "Atış Puanı Dağılımı": "Throw Score Distribution",
     "Tüm Atışların Puan Dağılımı": "Score Distribution of All Throws",
     "Puan": "Score",
     "Frekans": "Frequency",
-    # gelişim
     "Zaman İçinde Ortalama — Ham vs Adjusted": "Average Over Time — Raw vs Adjusted",
     "Ham Ortalama Gelişimi": "Raw Average Progress",
     "Adjusted Ortalama Gelişimi": "Adjusted Average Progress",
@@ -101,10 +94,8 @@ EN = {
     "Tur Numarasına Göre Ortalama Puan": "Average Score by Turn Number",
     "Tur": "Turn",
     "Ortalama Puan": "Average Score",
-    # rakipler
     "Rakip Bazlı İstatistik": "Stats by Opponent",
     "Rakip Bazlı Ortalamam": "My Average by Opponent",
-    # double
     "🎯 Double Deneme Analizi": "🎯 Double Attempt Analysis",
     "Double denemesi: Kalan puan ≤ 40 ve çift sayı veya 50 (bull).": "Double attempt: remaining score ≤ 40 and even, or 50 (bull).",
     "Toplam Double Denemesi": "Total Double Attempts",
@@ -118,11 +109,9 @@ EN = {
     "Maç Bazlı Ham vs Adjusted": "Raw vs Adjusted by Match",
     "Ham": "Raw",
     "Tip": "Type",
-    # en iyi / en kötü
     "🏆 En İyi 5 Maç (Ham Ortalamaya Göre)": "🏆 Top 5 Matches (by Raw Average)",
     "💀 En Kötü 5 Maç (Ham Ortalamaya Göre)": "💀 Bottom 5 Matches (by Raw Average)",
     "🏆 En İyi 5 Maç (Adjusted Ortalamaya Göre)": "🏆 Top 5 Matches (by Adjusted Average)",
-    # maç listesi
     "Tüm Maçlar": "All Matches",
     "Sonuç:": "Result:",
     "Rakip:": "Opponent:",
@@ -138,7 +127,6 @@ EN = {
     "Başlangıç": "Start",
     "Atış": "Throw",
     "Kalan": "Remaining",
-    # practice
     "🎯 PRACTICE ÇEK": "🎯 FETCH PRACTICE",
     "Practice çekiliyor...": "Fetching practice...",
     "Practice verisi yok. Sidebar'dan 🎯 PRACTICE ÇEK butonuna bas.": "No practice data. Press the 🎯 FETCH PRACTICE button in the sidebar.",
@@ -209,14 +197,45 @@ def show_token_help():
     st.info(t("💡 Token'ı bir kere aldıktan sonra uzun süre kullanabilirsin."))
 
 
+def get_db_connection():
+    """Turso varsa Turso'ya, yoksa lokal SQLite'a bağlanır."""
+    try:
+        url = st.secrets.get("TURSO_DATABASE_URL")
+        token = st.secrets.get("TURSO_AUTH_TOKEN")
+        if url and token:
+            import libsql_experimental as libsql
+            return libsql.connect(database=url, auth_token=token)
+    except Exception:
+        pass
+
+    # Lokal .env kontrolü
+    env_path = Path(ENV_FILE)
+    if env_path.exists():
+        url = token = None
+        for line in env_path.read_text().splitlines():
+            line = line.strip()
+            if line.startswith("TURSO_DATABASE_URL="):
+                url = line.split("=", 1)[1].strip().strip('"').strip("'")
+            elif line.startswith("TURSO_AUTH_TOKEN="):
+                token = line.split("=", 1)[1].strip().strip('"').strip("'")
+        if url and token:
+            try:
+                import libsql_experimental as libsql
+                return libsql.connect(database=url, auth_token=token)
+            except Exception:
+                pass
+
+    # Fallback: lokal SQLite
+    return sqlite3.connect(DB_PATH)
+
+
 def load_data():
-    conn = sqlite3.connect(DB_PATH)
+    conn = get_db_connection()
     try:
         matches = pd.read_sql_query("SELECT * FROM matches ORDER BY date DESC", conn)
         throws = pd.read_sql_query("SELECT * FROM throws", conn)
         legs = pd.read_sql_query("SELECT * FROM legs", conn)
     except Exception:
-        # Tablolar yoksa boş DataFrame döndür
         matches, throws, legs = pd.DataFrame(), pd.DataFrame(), pd.DataFrame()
     conn.close()
     return matches, throws, legs
@@ -240,7 +259,7 @@ def is_double_attempt(remaining_before):
         rb = int(remaining_before)
     except (ValueError, TypeError):
         return False
-    if rb > 0 and rb <= 40:
+    if rb > 0 and rb <= 40 and rb % 2 == 0:
         return True
     if rb == 50:
         return True
@@ -358,12 +377,6 @@ with st.sidebar:
     st.caption(f"{t('Oyuncu')}: **{PLAYER}**")
     st.caption(f"{t('Veritabanı')}: `{DB_PATH}`")
 
-# --- Tabloları oluştur (Streamlit Cloud'da dart.db boş olabilir) ---
-try:
-    import dartcounter_api
-    dartcounter_api.setup_database()
-except Exception as e:
-    st.warning(f"DB setup warning: {e}")
 
 matches, throws, legs = load_data()
 if matches.empty:
@@ -424,7 +437,6 @@ adj_avg_all, adj_darts_all, total_dbl, total_failed, _ = adjusted_stats(efe_thro
 efe_180s = len(efe_throws[efe_throws['score_thrown'] == 180])
 efe_100s = len(efe_throws[efe_throws['score_thrown'] >= 100])
 
-# Ortak çeviriler / shared translations
 RESULT_TXT = {'won': t('✅ Kazandı'), 'lost': t('❌ Kaybetti')}
 RESULT_ICON = {'won': '✅', 'lost': '❌'}
 MAIN_COLS = [t('Tarih'), t('Rakip'), t('Sonuç'), t('Ham Ort.'), t('Adjusted'), t('Rakip Ort.')]
