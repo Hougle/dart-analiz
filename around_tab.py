@@ -38,6 +38,23 @@ _EN = {
     "Genel ortalama": "Overall average",
     "Az oturumda hedef ortalamaları gürültülüdür, oturum sayısı arttıkça güvenilir olur.":
         "With few sessions the per-target averages are noisy; they become reliable as sessions accumulate.",
+        "Oturum Detayı ve Karşılaştırma": "Session Detail and Comparison",
+    "Bir oturum seç, diğer oturumlarla hedef hedef karşılaştır.":
+        "Pick a session, compare target by target with other sessions.",
+    "Oturum seç:": "Select session:",
+    "Seçili oturum": "Selected session",
+    "Bull'suz (seçili)": "Excl. Bull (selected)",
+    "İlk 5 oturum ort.": "First 5 sessions avg.",
+    "Son 5 oturum ort.": "Last 5 sessions avg.",
+    "Genel ortalama": "Overall average",
+    "İlk 5 oturum": "First 5 sessions",
+    "Son 5 oturum": "Last 5 sessions",
+    "Hedef Bazlı Karşılaştırma": "Target-based Comparison",
+    "Seçili": "Selected",
+    "Genel": "Overall",
+    "İlk 5": "First 5",
+    "Son 5": "Last 5",
+    "Fark": "Diff",
 }
 
 # 'any' = tüm modlar (filtre yok), 'all' = sadece "All" modu
@@ -232,6 +249,144 @@ def render(player, db_path, t=lambda s: s):
         if len(df) < 5:
             st.caption(tt("Az oturumda hedef ortalamaları gürültülüdür, "
                           "oturum sayısı arttıkça güvenilir olur."))
+
+    # ================================================================
+    # OTURUM DETAYI VE KARŞILAŞTIRMA
+    # ================================================================
+    if len(df) >= 1:
+        st.divider()
+        st.subheader(tt("Oturum Detayı ve Karşılaştırma"))
+        st.caption(tt("Bir oturum seç, diğer oturumlarla hedef hedef karşılaştır."))
+
+        # --- Oturum seçici ---
+        df_sorted = df.sort_values('started_at', ascending=False).reset_index(drop=True)
+        session_options = df_sorted.apply(
+            lambda r: f"{str(r['date'])[5:16]} · {int(r['darts_thrown'])} ok · "
+                      f"{tt('İsabet %')}: {r['hit_rate']:.1f}",
+            axis=1,
+        ).tolist()
+        selected_label = st.selectbox(
+            tt("Oturum seç:"),
+            session_options,
+            key="atc_session_select",
+        )
+        sel_idx = session_options.index(selected_label)
+        selected = df_sorted.iloc[sel_idx]
+        selected_atc_id = selected['atc_user_id']
+
+        # --- Hedef bazlı veri: seçili oturum + karşılaştırma grupları ---
+        tg_all = targets[targets['atc_user_id'].isin(df_sorted['atc_user_id'])]
+        tg_selected = tg_all[tg_all['atc_user_id'] == selected_atc_id]
+
+        # İlk 5 / Son 5 / Genel
+        if len(df_sorted) >= 5:
+            first5_ids = df_sorted.tail(5)['atc_user_id'].tolist()
+            last5_ids = df_sorted.head(5)['atc_user_id'].tolist()
+        else:
+            first5_ids = df_sorted['atc_user_id'].tolist()
+            last5_ids = df_sorted['atc_user_id'].tolist()
+
+        # Hedef başına ortalama hesaplama
+        def per_target_avg(ids):
+            sub = tg_all[tg_all['atc_user_id'].isin(ids)]
+            if sub.empty:
+                return pd.DataFrame()
+            g = sub.groupby('target')['darts_needed'].mean().reset_index()
+            g.columns = ['target', 'avg_darts']
+            return g
+
+        sel_avg = tg_selected.groupby('target')['darts_needed'].mean().reset_index()
+        sel_avg.columns = ['target', 'selected']
+        first5_avg = per_target_avg(first5_ids).rename(columns={'avg_darts': 'first5'})
+        last5_avg = per_target_avg(last5_ids).rename(columns={'avg_darts': 'last5'})
+        overall_avg = per_target_avg(df_sorted['atc_user_id'].tolist()).rename(
+            columns={'avg_darts': 'overall'})
+
+        # Birleştir
+        comp = sel_avg.merge(first5_avg, on='target', how='outer') \
+                      .merge(last5_avg, on='target', how='outer') \
+                      .merge(overall_avg, on='target', how='outer') \
+                      .sort_values('target').reset_index(drop=True)
+        comp['name'] = comp['target'].apply(
+            lambda n: tt("Bull") if int(n) == BULL_TARGET else str(int(n)))
+
+        # --- Üst metrikler: seçili oturum vs genel ortalama ---
+        sel_total = int(selected['darts_thrown'])
+        sel_bf = selected.get('darts_bull_free')
+        sel_bf = int(sel_bf) if pd.notna(sel_bf) else None
+        overall_mean = float(df_sorted['darts_thrown'].mean())
+        first5_mean = float(df_sorted.tail(5)['darts_thrown'].mean()) if len(df_sorted) >= 5 else overall_mean
+        last5_mean = float(df_sorted.head(5)['darts_thrown'].mean()) if len(df_sorted) >= 5 else overall_mean
+
+        m1, m2, m3, m4, m5 = st.columns(5)
+        m1.metric(tt("Seçili oturum"), sel_total,
+                  delta=f"{sel_total - overall_mean:+.1f}",
+                  delta_color="inverse")
+        if sel_bf is not None:
+            m2.metric(tt("Bull'suz (seçili)"), sel_bf)
+        else:
+            m2.metric(tt("Bull'suz (seçili)"), "—")
+        m3.metric(tt("İlk 5 oturum ort."), f"{first5_mean:.1f}")
+        m4.metric(tt("Son 5 oturum ort."), f"{last5_mean:.1f}")
+        m5.metric(tt("Genel ortalama"), f"{overall_mean:.1f}")
+
+        # --- Hedef bazlı karşılaştırma grafiği ---
+        fig_cmp = go.Figure()
+        # Genel ortalama (arka plan)
+        fig_cmp.add_trace(go.Bar(
+            x=comp['name'], y=comp['overall'],
+            name=tt("Genel ortalama"),
+            marker_color='rgba(180,180,180,0.35)',
+            hovertemplate="%{y:.1f} " + tt("Ok") + "<extra></extra>",
+        ))
+        # İlk 5 ortalama
+        fig_cmp.add_trace(go.Bar(
+            x=comp['name'], y=comp['first5'],
+            name=tt("İlk 5 oturum"),
+            marker_color='rgba(78,205,196,0.55)',
+            hovertemplate="%{y:.1f} " + tt("Ok") + "<extra></extra>",
+        ))
+        # Son 5 ortalama
+        fig_cmp.add_trace(go.Bar(
+            x=comp['name'], y=comp['last5'],
+            name=tt("Son 5 oturum"),
+            marker_color='rgba(255,159,64,0.7)',
+            hovertemplate="%{y:.1f} " + tt("Ok") + "<extra></extra>",
+        ))
+        # Seçili oturum
+        fig_cmp.add_trace(go.Scatter(
+            x=comp['name'], y=comp['selected'],
+            name=tt("Seçili oturum"),
+            mode='markers+lines',
+            line=dict(color='#ff6b35', width=2, dash='dot'),
+            marker=dict(size=10, color='#ff6b35',
+                        line=dict(width=2, color='#0e1117')),
+            hovertemplate="%{y:.1f} " + tt("Ok") + "<extra></extra>",
+        ))
+        fig_cmp.update_layout(
+            barmode='group',
+            title=tt("Hedef Bazlı Karşılaştırma"),
+            xaxis_title=tt('Hedef'),
+            yaxis_title=t('Ok'),
+            height=460,
+            margin=dict(t=60, b=20),
+            legend=dict(orientation='h', yanchor='bottom',
+                        y=1.02, xanchor='right', x=1),
+            template='plotly_dark',
+        )
+        st.plotly_chart(fig_cmp, use_container_width=True)
+
+        # --- Fark tablosu (seçili vs genel) ---
+        comp_tbl = comp.copy()
+        comp_tbl['diff'] = (comp_tbl['selected'] - comp_tbl['overall']).round(1)
+        comp_tbl['status'] = comp_tbl['diff'].apply(
+            lambda d: '🟢' if d < -1 else ('🔴' if d > 1 else '⚪') if pd.notna(d) else '—')
+        tbl = comp_tbl[['name', 'selected', 'overall', 'first5', 'last5', 'diff', 'status']].copy()
+        tbl.columns = [tt('Hedef'), tt('Seçili'), tt('Genel'),
+                       tt('İlk 5'), tt('Son 5'), tt('Fark'), '']
+        for c in ['selected', 'overall', 'first5', 'last5', 'diff']:
+            tbl[c] = tbl[c].round(1)
+        st.dataframe(tbl, use_container_width=True, hide_index=True)
 
     # --- Tablo ---
     show = df[['date', 'mode_txt', 'opp', 'darts_thrown',
