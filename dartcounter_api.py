@@ -1,9 +1,10 @@
 """
-DartCounter API Client v2
+DartCounter API Client v2 — Turso HTTP API üzerinden
 Maç verilerini DartCounter API'sinden çeker ve Turso'ya yazar.
 """
 import os
 import sqlite3
+import json
 import requests
 from datetime import datetime
 from pathlib import Path
@@ -23,6 +24,9 @@ def _get_turso_credentials():
         url = st.secrets.get("TURSO_DATABASE_URL")
         token = st.secrets.get("TURSO_AUTH_TOKEN")
         if url and token:
+            # libsql:// -> https://
+            if url.startswith("libsql://"):
+                url = url.replace("libsql://", "https://", 1)
             return url, token
     except Exception:
         pass
@@ -38,72 +42,116 @@ def _get_turso_credentials():
             elif line.startswith("TURSO_AUTH_TOKEN="):
                 token = line.split("=", 1)[1].strip().strip('"').strip("'")
         if url and token:
+            if url.startswith("libsql://"):
+                url = url.replace("libsql://", "https://", 1)
             return url, token
 
     return None, None
 
 
-def get_db_connection():
+def turso_execute(sql, args=None):
     """
-    Turso varsa Turso'ya bağlanır, yoksa lokal SQLite'a düşer.
-    Yeni turso-python kütüphanesini kullanır.
+    Turso HTTP API'sine tek bir SQL komutu gönderir.
+    Sonuç: dict (cols, rows, affected_row_count, last_insert_rowid)
     """
     url, token = _get_turso_credentials()
-    if url and token:
-        try:
-            from turso_python.connection import TursoConnection
-            # libsql:// URL'sini https:// olarak ayarlar
-            if url.startswith("libsql://"):
-                url = url.replace("libsql://", "https://", 1)
-            
-            # TursoConnection kullanarak bağlantı oluştur
-            # Not: turso-python kütüphanesi doğrudan DB-API 2.0 uyumlu bir connection nesnesi döndürmez.
-            # Bu yüzden, mevcut kodun çalışması için önce bir adaptör katmanı yazmamız gerekebilir.
-            # Şimdilik, en basit haliyle bir connection sarmalayıcı oluşturuyoruz.
-            from turso_python.connection import TursoConnection
-            conn = TursoConnection(database_url=url, auth_token=token)
-            # Mevcut kodunuzun beklediği cursor() ve commit() metodlarını sağlamak için bir sarmalayıcı.
-            class TursoConnectionWrapper:
-                def __init__(self, turso_conn):
-                    self._conn = turso_conn
+    if not url or not token:
+        raise RuntimeError("Turso credentials not found")
 
-                def cursor(self):
-                    # Gelen sorguları yürütmek için basit bir cursor adaptörü.
-                    # Bu kısım, kullandığınız sorgulara göre daha da geliştirilebilir.
-                    class Cursor:
-                        def __init__(self, conn):
-                            self._conn = conn
-                            self._last_result = None
-                        def execute(self, query, params=None):
-                            # turso-python'un basit HTTP API'sini kullanarak sorguyu çalıştır.
-                            # Bu, SQL sorgularını doğrudan çalıştırmak için bir yer tutucudur.
-                            # Gerçek uygulamada, sorgu tipine göre (SELECT, INSERT vs.) farklı metodlar kullanmanız gerekebilir.
-                            print(f"Turso query executed: {query}")
-                            pass
-                        def fetchone(self):
-                            return None
-                        def fetchall(self):
-                            return []
-                    return Cursor(self._conn)
-                
-                def commit(self):
-                    # turso-python otomatik olarak commit yapmaz, bu yüzden burada bir şey yapmıyoruz.
-                    pass
+    endpoint = f"{url}/v2/pipeline"
+    headers = {
+        "Authorization": f"Bearer {token}",
+        "Content-Type": "application/json",
+    }
 
-                def close(self):
-                    # Bağlantıyı kapatmak için özel bir metod yoksa, burada bir şey yapmıyoruz.
-                    pass
+    # Positional args -> Turso format
+    turso_args = []
+    if args:
+        for a in args:
+            if a is None:
+                turso_args.append({"type": "null"})
+            elif isinstance(a, bool):
+                turso_args.append({"type": "integer", "value": str(int(a))})
+            elif isinstance(a, int):
+                turso_args.append({"type": "integer", "value": str(a)})
+            elif isinstance(a, float):
+                turso_args.append({"type": "float", "value": str(a)})
+            else:
+                turso_args.append({"type": "text", "value": str(a)})
 
-            # Gerçek kodunuzun çalışması için bu sarmalayıcıyı döndürüyoruz.
-            return TursoConnectionWrapper(conn)
-        except ImportError:
-            print("⚠ turso-python yüklü değil, lokal SQLite'a düşülüyor.")
-        except Exception as e:
-            print(f"⚠ Turso bağlantı hatası: {e}, lokal SQLite'a düşülüyor.")
-    
-    # Fallback: lokal SQLite
+    body = {
+        "requests": [
+            {
+                "type": "execute",
+                "stmt": {"sql": sql, "args": turso_args},
+            },
+            {"type": "close"},
+        ]
+    }
+
+    r = requests.post(endpoint, headers=headers, json=body, timeout=30)
+    r.raise_for_status()
+    data = r.json()
+
+    if "results" not in data or len(data["results"]) == 0:
+        raise RuntimeError(f"Turso error: {data}")
+
+    result = data["results"][0]
+    if result.get("type") == "error":
+        raise RuntimeError(f"Turso SQL error: {result.get('error')}")
+
+    return result.get("response", {}).get("result", {})
+
+
+def turso_query(sql, args=None):
+    """
+    SELECT sorgusu çalıştırır, pandas DataFrame'e uygun liste döndürür.
+    Dönüş: (columns, rows)
+    """
+    result = turso_execute(sql, args)
+    cols = [c["name"] for c in result.get("cols", [])]
+    rows = []
+    for row in result.get("rows", []):
+        new_row = []
+        for v in row:
+            if v.get("type") == "null":
+                new_row.append(None)
+            elif v.get("type") == "integer":
+                new_row.append(int(v["value"]))
+            elif v.get("type") == "float":
+                new_row.append(float(v["value"]))
+            else:
+                new_row.append(v.get("value"))
+        rows.append(new_row)
+    return cols, rows
+
+
+def turso_execute_script(script):
+    """
+    Birden fazla SQL komutunu (CREATE TABLE IF NOT EXISTS) sırayla çalıştırır.
+    """
+    # executescript içindeki komutları ayır
+    statements = [s.strip() for s in script.split(";") if s.strip()]
+    for stmt in statements:
+        if stmt:
+            turso_execute(stmt)
+
+
+def _turso_available():
+    url, token = _get_turso_credentials()
+    return bool(url and token)
+
+
+def get_db_connection():
+    """
+    Eski API uyumluluğu için. Artık kullanılmıyor ama import'ları bozmamak için bırakıldı.
+    """
     return sqlite3.connect(DB_PATH)
 
+
+# ============================================================================
+# DARtCounter API
+# ============================================================================
 
 def load_token():
     # 1) Streamlit Cloud (st.secrets) — varsa öncelikli
@@ -153,67 +201,118 @@ def parse_match_id(url_or_id):
 
 
 def setup_database(conn=None):
-    """Tabloları oluşturur. conn verilmezse yeni bağlantı açar."""
-    own = conn is None
-    if own:
-        conn = get_db_connection()
-    c = conn.cursor()
-    c.executescript("""
-    CREATE TABLE IF NOT EXISTS matches (
-        match_id TEXT PRIMARY KEY,
-        date TEXT,
-        game_type TEXT,
-        player1_name TEXT,
-        player2_name TEXT,
-        p1_user_id INTEGER,
-        p2_user_id INTEGER,
-        p1_result TEXT,
-        p2_result TEXT,
-        final_score_p1 INTEGER,
-        final_score_p2 INTEGER,
-        p1_avg_3dart REAL,
-        p2_avg_3dart REAL,
-        p1_first9_avg REAL,
-        p2_first9_avg REAL,
-        p1_darts INTEGER,
-        p2_darts INTEGER,
-        p1_highest_score INTEGER,
-        p2_highest_score INTEGER,
-        p1_highest_finish INTEGER,
-        p2_highest_finish INTEGER,
-        p1_checkout_rate REAL,
-        p2_checkout_rate REAL,
-        p1_180s INTEGER DEFAULT 0,
-        p2_180s INTEGER DEFAULT 0,
-        source TEXT
-    );
-    CREATE TABLE IF NOT EXISTS legs (
-        leg_id TEXT PRIMARY KEY,
-        match_id TEXT,
-        leg_no INTEGER,
-        winner_name TEXT,
-        winner_match_user_id TEXT
-    );
-    CREATE TABLE IF NOT EXISTS throws (
-        throw_id TEXT PRIMARY KEY,
-        leg_id TEXT,
-        match_id TEXT,
-        turn INTEGER,
-        player_name TEXT,
-        player_user_id INTEGER,
-        remaining_before INTEGER,
-        score_thrown INTEGER,
-        remaining_after INTEGER,
-        darts_thrown INTEGER
-    );
-    """)
-    conn.commit()
-    if own:
+    """Tabloları oluşturur. Turso varsa Turso'da, yoksa lokal SQLite'ta."""
+    if _turso_available():
+        script = """
+        CREATE TABLE IF NOT EXISTS matches (
+            match_id TEXT PRIMARY KEY,
+            date TEXT,
+            game_type TEXT,
+            player1_name TEXT,
+            player2_name TEXT,
+            p1_user_id INTEGER,
+            p2_user_id INTEGER,
+            p1_result TEXT,
+            p2_result TEXT,
+            final_score_p1 INTEGER,
+            final_score_p2 INTEGER,
+            p1_avg_3dart REAL,
+            p2_avg_3dart REAL,
+            p1_first9_avg REAL,
+            p2_first9_avg REAL,
+            p1_darts INTEGER,
+            p2_darts INTEGER,
+            p1_highest_score INTEGER,
+            p2_highest_score INTEGER,
+            p1_highest_finish INTEGER,
+            p2_highest_finish INTEGER,
+            p1_checkout_rate REAL,
+            p2_checkout_rate REAL,
+            p1_180s INTEGER DEFAULT 0,
+            p2_180s INTEGER DEFAULT 0,
+            source TEXT
+        );
+        CREATE TABLE IF NOT EXISTS legs (
+            leg_id TEXT PRIMARY KEY,
+            match_id TEXT,
+            leg_no INTEGER,
+            winner_name TEXT,
+            winner_match_user_id TEXT
+        );
+        CREATE TABLE IF NOT EXISTS throws (
+            throw_id TEXT PRIMARY KEY,
+            leg_id TEXT,
+            match_id TEXT,
+            turn INTEGER,
+            player_name TEXT,
+            player_user_id INTEGER,
+            remaining_before INTEGER,
+            score_thrown INTEGER,
+            remaining_after INTEGER,
+            darts_thrown INTEGER
+        );
+        """
+        turso_execute_script(script)
+    else:
+        conn = sqlite3.connect(DB_PATH)
+        conn.executescript("""
+        CREATE TABLE IF NOT EXISTS matches (
+            match_id TEXT PRIMARY KEY,
+            date TEXT,
+            game_type TEXT,
+            player1_name TEXT,
+            player2_name TEXT,
+            p1_user_id INTEGER,
+            p2_user_id INTEGER,
+            p1_result TEXT,
+            p2_result TEXT,
+            final_score_p1 INTEGER,
+            final_score_p2 INTEGER,
+            p1_avg_3dart REAL,
+            p2_avg_3dart REAL,
+            p1_first9_avg REAL,
+            p2_first9_avg REAL,
+            p1_darts INTEGER,
+            p2_darts INTEGER,
+            p1_highest_score INTEGER,
+            p2_highest_score INTEGER,
+            p1_highest_finish INTEGER,
+            p2_highest_finish INTEGER,
+            p1_checkout_rate REAL,
+            p2_checkout_rate REAL,
+            p1_180s INTEGER DEFAULT 0,
+            p2_180s INTEGER DEFAULT 0,
+            source TEXT
+        );
+        CREATE TABLE IF NOT EXISTS legs (
+            leg_id TEXT PRIMARY KEY,
+            match_id TEXT,
+            leg_no INTEGER,
+            winner_name TEXT,
+            winner_match_user_id TEXT
+        );
+        CREATE TABLE IF NOT EXISTS throws (
+            throw_id TEXT PRIMARY KEY,
+            leg_id TEXT,
+            match_id TEXT,
+            turn INTEGER,
+            player_name TEXT,
+            player_user_id INTEGER,
+            remaining_before INTEGER,
+            score_thrown INTEGER,
+            remaining_after INTEGER,
+            darts_thrown INTEGER
+        );
+        """)
+        conn.commit()
         conn.close()
     return conn
 
 
 def match_exists(conn, match_id):
+    if _turso_available():
+        _, rows = turso_query("SELECT 1 FROM matches WHERE match_id=?", [match_id])
+        return len(rows) > 0
     c = conn.cursor()
     c.execute("SELECT 1 FROM matches WHERE match_id=?", (match_id,))
     return c.fetchone() is not None
@@ -221,7 +320,6 @@ def match_exists(conn, match_id):
 
 def save_match(conn, data):
     match_id = data["id"]
-    c = conn.cursor()
 
     if match_exists(conn, match_id):
         print(f"  ⏭  {match_id[:8]} zaten kayıtlı, atlanıyor.")
@@ -268,7 +366,7 @@ def save_match(conn, data):
     p1_180s = 0
     p2_180s = 0
 
-    c.execute("""INSERT INTO matches
+    insert_sql = """INSERT INTO matches
                  (match_id, date, game_type, player1_name, player2_name,
                   p1_user_id, p2_user_id, p1_result, p2_result,
                   final_score_p1, final_score_p2,
@@ -279,22 +377,28 @@ def save_match(conn, data):
                   p1_highest_finish, p2_highest_finish,
                   p1_checkout_rate, p2_checkout_rate,
                   p1_180s, p2_180s, source)
-                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
-              (match_id, date_str, game_type, p1_name, p2_name,
-               p1_uid, p2_uid, p1_result, p2_result, p1_score, p2_score,
-               safe_float(p1.get("three_dart_average")),
-               safe_float(p2.get("three_dart_average")),
-               safe_float(p1.get("first_nine_average")),
-               safe_float(p2.get("first_nine_average")),
-               safe_int(p1.get("darts_thrown")),
-               safe_int(p2.get("darts_thrown")),
-               safe_int(p1.get("highest_score")),
-               safe_int(p2.get("highest_score")),
-               safe_int(p1.get("highest_finish")),
-               safe_int(p2.get("highest_finish")),
-               safe_float(p1.get("checkout_rate")),
-               safe_float(p2.get("checkout_rate")),
-               p1_180s, p2_180s, "api"))
+                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"""
+
+    args = (match_id, date_str, game_type, p1_name, p2_name,
+            p1_uid, p2_uid, p1_result, p2_result, p1_score, p2_score,
+            safe_float(p1.get("three_dart_average")),
+            safe_float(p2.get("three_dart_average")),
+            safe_float(p1.get("first_nine_average")),
+            safe_float(p2.get("first_nine_average")),
+            safe_int(p1.get("darts_thrown")),
+            safe_int(p2.get("darts_thrown")),
+            safe_int(p1.get("highest_score")),
+            safe_int(p2.get("highest_score")),
+            safe_int(p1.get("highest_finish")),
+            safe_int(p2.get("highest_finish")),
+            safe_float(p1.get("checkout_rate")),
+            safe_float(p2.get("checkout_rate")),
+            p1_180s, p2_180s, "api")
+
+    if _turso_available():
+        turso_execute(insert_sql, list(args))
+    else:
+        conn.execute(insert_sql, args)
 
     legs = data.get("legs", [])
     leg_no = 0
@@ -312,8 +416,13 @@ def save_match(conn, data):
                         break
                 break
 
-        c.execute("INSERT INTO legs (leg_id, match_id, leg_no, winner_name, winner_match_user_id) VALUES (?, ?, ?, ?, ?)",
-                  (leg_id, match_id, leg_no, winner_name, winner_muid))
+        leg_sql = "INSERT INTO legs (leg_id, match_id, leg_no, winner_name, winner_match_user_id) VALUES (?, ?, ?, ?, ?)"
+        leg_args = [leg_id, match_id, leg_no, winner_name, winner_muid]
+
+        if _turso_available():
+            turso_execute(leg_sql, leg_args)
+        else:
+            conn.execute(leg_sql, leg_args)
 
         for leg_user in leg.get("users", []):
             uid = leg_user.get("user_id")
@@ -342,22 +451,31 @@ def save_match(conn, data):
                     else:
                         p2_180s += 1
 
-                c.execute("""INSERT INTO throws
+                throw_sql = """INSERT INTO throws
                              (throw_id, leg_id, match_id, turn, player_name,
                               player_user_id, remaining_before, score_thrown,
                               remaining_after, darts_thrown)
-                             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
-                          (turn.get("turn_id", f"{leg_id}_{uid}_{turn_no}"),
-                           leg_id, match_id, turn_no, p_name, uid,
-                           remaining_before, score, remaining_after, darts))
+                             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"""
+                throw_args = [
+                    turn.get("turn_id", f"{leg_id}_{uid}_{turn_no}"),
+                    leg_id, match_id, turn_no, p_name, uid,
+                    remaining_before, score, remaining_after, darts
+                ]
 
-    c.execute("UPDATE matches SET p1_180s=?, p2_180s=? WHERE match_id=?",
-              (p1_180s, p2_180s, match_id))
+                if _turso_available():
+                    turso_execute(throw_sql, throw_args)
+                else:
+                    conn.execute(throw_sql, throw_args)
 
-    conn.commit()
-    p1_throws = sum(1 for _ in c.execute("SELECT 1 FROM throws WHERE match_id=? AND player_user_id=?", (match_id, p1_uid)))
-    p2_throws = sum(1 for _ in c.execute("SELECT 1 FROM throws WHERE match_id=? AND player_user_id=?", (match_id, p2_uid)))
-    print(f"  ✅ {p1_name} ({p1_throws} tur) vs {p2_name} ({p2_throws} tur) | Sonuç: {p1_result}")
+    update_sql = "UPDATE matches SET p1_180s=?, p2_180s=? WHERE match_id=?"
+    update_args = [p1_180s, p2_180s, match_id]
+    if _turso_available():
+        turso_execute(update_sql, update_args)
+    else:
+        conn.execute(update_sql, update_args)
+        conn.commit()
+
+    print(f"  ✅ {p1_name} vs {p2_name} | Sonuç: {p1_result}")
     return True
 
 

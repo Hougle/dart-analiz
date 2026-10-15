@@ -198,15 +198,9 @@ def show_token_help():
 
 
 def get_db_connection():
-    """Turso varsa Turso'ya, yoksa lokal SQLite'a bağlanır."""
-    try:
-        url = st.secrets.get("TURSO_DATABASE_URL")
-        token = st.secrets.get("TURSO_AUTH_TOKEN")
-        if url and token:
-            import libsql_experimental as libsql
-            return libsql.connect(database=url, auth_token=token)
-    except Exception:
-        pass
+    """Turso varsa Turso'ya, yoksa lokal SQLite'a bağlanır (sadece import için)."""
+    import sqlite3
+    return sqlite3.connect(DB_PATH)
 
     # Lokal .env kontrolü
     env_path = Path(ENV_FILE)
@@ -230,15 +224,31 @@ def get_db_connection():
 
 
 def load_data():
-    conn = get_db_connection()
+    import dartcounter_api
     try:
-        matches = pd.read_sql_query("SELECT * FROM matches ORDER BY date DESC", conn)
-        throws = pd.read_sql_query("SELECT * FROM throws", conn)
-        legs = pd.read_sql_query("SELECT * FROM legs", conn)
-    except Exception:
-        matches, throws, legs = pd.DataFrame(), pd.DataFrame(), pd.DataFrame()
-    conn.close()
-    return matches, throws, legs
+        # Turso üzerinden oku
+        matches_cols, matches_rows = dartcounter_api.turso_query(
+            "SELECT * FROM matches ORDER BY date DESC")
+        throws_cols, throws_rows = dartcounter_api.turso_query(
+            "SELECT * FROM throws")
+        legs_cols, legs_rows = dartcounter_api.turso_query(
+            "SELECT * FROM legs")
+
+        matches = pd.DataFrame(matches_rows, columns=matches_cols) if matches_rows else pd.DataFrame()
+        throws = pd.DataFrame(throws_rows, columns=throws_cols) if throws_rows else pd.DataFrame()
+        legs = pd.DataFrame(legs_rows, columns=legs_cols) if legs_rows else pd.DataFrame()
+        return matches, throws, legs
+    except Exception as e:
+        # Fallback: lokal SQLite
+        try:
+            conn = sqlite3.connect(DB_PATH)
+            matches = pd.read_sql_query("SELECT * FROM matches ORDER BY date DESC", conn)
+            throws = pd.read_sql_query("SELECT * FROM throws", conn)
+            legs = pd.read_sql_query("SELECT * FROM legs", conn)
+            conn.close()
+            return matches, throws, legs
+        except Exception:
+            return pd.DataFrame(), pd.DataFrame(), pd.DataFrame()
 
 
 def make_label(date, opponent, n=12):
