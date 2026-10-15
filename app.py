@@ -240,7 +240,7 @@ def is_double_attempt(remaining_before):
         rb = int(remaining_before)
     except (ValueError, TypeError):
         return False
-    if rb > 0 and rb <= 40 and rb % 2 == 0:
+    if rb > 0 and rb <= 40:
         return True
     if rb == 50:
         return True
