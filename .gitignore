@@ -1,0 +1,26 @@
+# Secrets - ASLA commit etme
+.env
+*.env
+
+# Python önbellek dosyaları
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Veritabanı dosyaları
+*.db
+*.sqlite3
+
+# Sanal ortam
+venv/
+.venv/
+env/
+
+# Editör / OS
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+
+# Screenshots (opsiyonel - istersen kaldırabilirsin)
+screenshots/

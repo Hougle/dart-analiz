@@ -1,0 +1,405 @@
+{
+  "id": "01a0f808-d91d-71b1-a871-7dabd5c0f023",
+  "started_at": 1790867206,
+  "finished_at": "2026-10-01T15:15:24.000000Z",
+  "settings": {
+    "has_teams": false,
+    "start_score": 501,
+    "is_best_of": true,
+    "has_sets": false,
+    "goal_amount": 1,
+    "vs_cpu": false,
+    "cpu_level": null,
+    "has_checkout_rate": true,
+    "two_legs_difference": false,
+    "enable_sudden_death": false,
+    "start_with": "straight_in",
+    "end_with": "double_out",
+    "is_online": true,
+    "amount_of_players": 2,
+    "is_ranked_game": false,
+    "online_gameplay_type": "lobby_game"
+  },
+  "user_ids": [
+    19676059,
+    18337305
+  ],
+  "verified_by_user_ids": [
+    19676059,
+    18337305
+  ],
+  "users": [
+    {
+      "match_user_id": "01a0f808-d91d-71b1-a871-7dabd662775d",
+      "user_id": 19676059,
+      "team_id": null,
+      "sequence": null,
+      "player_name": "Efe",
+      "result": "won",
+      "is_verified": true,
+      "is_cpu": false,
+      "cpu_level": null,
+      "darts_thrown": 51,
+      "best_legs": 51,
+      "three_dart_average": "29.47",
+      "first_nine_average": "27.00",
+      "highest_score": 85,
+      "highest_finish": 8,
+      "checkout_rate": "100.00",
+      "darts_on_double": 1,
+      "checked_legs": 1,
+      "has_camera": false,
+      "has_checkout_rate": true,
+      "handicap": null,
+      "profile_photo_url": null,
+      "is_ultimate": true,
+      "badge": null,
+      "selected_badge": null
+    },
+    {
+      "match_user_id": "01a0f808-d91d-71b1-a871-7dabd7054a79",
+      "user_id": 18337305,
+      "team_id": null,
+      "sequence": null,
+      "player_name": "Peter",
+      "result": "lost",
+      "is_verified": true,
+      "is_cpu": false,
+      "cpu_level": null,
+      "darts_thrown": 48,
+      "best_legs": null,
+      "three_dart_average": "30.50",
+      "first_nine_average": "44.67",
+      "highest_score": 77,
+      "highest_finish": null,
+      "checkout_rate": "0.00",
+      "darts_on_double": 6,
+      "checked_legs": 0,
+      "has_camera": false,
+      "has_checkout_rate": true,
+      "handicap": null,
+      "profile_photo_url": "https://s3.dartcounter.net/media/profile-photos/a5a0d862-310a-4f07-abbd-866f9ba0b761.webp",
+      "is_ultimate": true,
+      "badge": null,
+      "selected_badge": null
+    }
+  ],
+  "teams": [],
+  "legs": [
+    {
+      "leg_id": "01a0f808-d91e-7099-96bf-8594e84d80e2",
+      "winner_match_user_id": "01a0f808-d91d-71b1-a871-7dabd662775d",
+      "started_match_user_id": "01a0f808-d91d-71b1-a871-7dabd662775d",
+      "sequence": null,
+      "is_break": false,
+      "users": [
+        {
+          "user_id": 19676059,
+          "match_user_id": "01a0f808-d91d-71b1-a871-7dabd662775d",
+          "darts_thrown": 51,
+          "total_score": 501,
+          "three_dart_average": "29.47",
+          "first_nine_average": "0.00",
+          "checkout_rate": null,
+          "darts_on_double": 1,
+          "trebleless_visits": null,
+          "one_dart_on_double_opportunity": 0,
+          "two_darts_on_double_opportunity": 0,
+          "three_darts_on_double_opportunity": 17,
+          "one_dart_on_double_hit": 0,
+          "two_darts_on_double_hit": 0,
+          "three_darts_on_double_hit": 1,
+          "user_started": true,
+          "under_pressure": null,
+          "turns": [
+            {
+              "turn_id": "01a0f808-d91e-7099-96bf-8594e8e4fda6",
+              "total_score": 29,
+              "remaining_score": 472,
+              "darts_thrown": 3,
+              "under_pressure": null,
+              "throws": []
+            },
+            {
+              "turn_id": "01a0f808-d91e-7099-96bf-8594ea57162c",
+              "total_score": 50,
+              "remaining_score": 422,
+              "darts_thrown": 3,
+              "under_pressure": null,
+              "throws": []
+            },
+            {
+              "turn_id": "01a0f808-d91f-705d-8e1c-bbc881dc501f",
+              "total_score": 2,
+              "remaining_score": 420,
+              "darts_thrown": 3,
+              "under_pressure": null,
+              "throws": []
+            },
+            {
+              "turn_id": "01a0f808-d91f-705d-8e1c-bbc88221d0a6",
+              "total_score": 32,
+              "remaining_score": 388,
+              "darts_thrown": 3,
+              "under_pressure": null,
+              "throws": []
+            },
+            {
+              "turn_id": "01a0f808-d91f-705d-8e1c-bbc883449fdd",
+              "total_score": 3,
+              "remaining_score": 385,
+              "darts_thrown": 3,
+              "under_pressure": null,
+              "throws": []
+            },
+            {
+              "turn_id": "01a0f808-d91f-705d-8e1c-bbc883bf791c",
+              "total_score": 30,
+              "remaining_score": 355,
+              "darts_thrown": 3,
+              "under_pressure": null,
+              "throws": []
+            },
+            {
+              "turn_id": "01a0f808-d91f-705d-8e1c-bbc884d4b641",
+              "total_score": 33,
+              "remaining_score": 322,
+              "darts_thrown": 3,
+              "under_pressure": null,
+              "throws": []
+            },
+            {
+              "turn_id": "01a0f808-d920-71e5-b3fc-ce8f1fcd74d1",
+              "total_score": 35,
+              "remaining_score": 287,
+              "darts_thrown": 3,
+              "under_pressure": null,
+              "throws": []
+            },
+            {
+              "turn_id": "01a0f808-d920-71e5-b3fc-ce8f2081b61c",
+              "total_score": 45,
+              "remaining_score": 242,
+              "darts_thrown": 3,
+              "under_pressure": null,
+              "throws": []
+            },
+            {
+              "turn_id": "01a0f808-d920-71e5-b3fc-ce8f21696cf0",
+              "total_score": 64,
+              "remaining_score": 178,
+              "darts_thrown": 3,
+              "under_pressure": null,
+              "throws": []
+            },
+            {
+              "turn_id": "01a0f808-d920-71e5-b3fc-ce8f224ae447",
+              "total_score": 82,
+              "remaining_score": 96,
+              "darts_thrown": 3,
+              "under_pressure": null,
+              "throws": []
+            },
+            {
+              "turn_id": "01a0f808-d920-71e5-b3fc-ce8f22bb34e1",
+              "total_score": 85,
+              "remaining_score": 11,
+              "darts_thrown": 3,
+              "under_pressure": null,
+              "throws": []
+            },
+            {
+              "turn_id": "01a0f808-d921-7177-a61e-d49fbe41841e",
+              "total_score": 0,
+              "remaining_score": 11,
+              "darts_thrown": 3,
+              "under_pressure": null,
+              "throws": []
+            },
+            {
+              "turn_id": "01a0f808-d921-7177-a61e-d49fbfb71c7a",
+              "total_score": 3,
+              "remaining_score": 8,
+              "darts_thrown": 3,
+              "under_pressure": null,
+              "throws": []
+            },
+            {
+              "turn_id": "01a0f808-d921-7177-a61e-d49fc12eef5c",
+              "total_score": 0,
+              "remaining_score": 8,
+              "darts_thrown": 3,
+              "under_pressure": null,
+              "throws": []
+            },
+            {
+              "turn_id": "01a0f808-d921-7177-a61e-d49fc24c27e9",
+              "total_score": 0,
+              "remaining_score": 8,
+              "darts_thrown": 3,
+              "under_pressure": null,
+              "throws": []
+            },
+            {
+              "turn_id": "01a0f808-d921-7177-a61e-d49fc375bb2a",
+              "total_score": 8,
+              "remaining_score": 0,
+              "darts_thrown": 3,
+              "under_pressure": null,
+              "throws": []
+            }
+          ]
+        },
+        {
+          "user_id": 18337305,
+          "match_user_id": "01a0f808-d91d-71b1-a871-7dabd7054a79",
+          "darts_thrown": 48,
+          "total_score": 488,
+          "three_dart_average": "30.50",
+          "first_nine_average": "0.00",
+          "checkout_rate": null,
+          "darts_on_double": 6,
+          "trebleless_visits": null,
+          "one_dart_on_double_opportunity": 0,
+          "two_darts_on_double_opportunity": 0,
+          "three_darts_on_double_opportunity": 16,
+          "one_dart_on_double_hit": 0,
+          "two_darts_on_double_hit": 0,
+          "three_darts_on_double_hit": 0,
+          "user_started": false,
+          "under_pressure": null,
+          "turns": [
+            {
+              "turn_id": "01a0f808-d91e-7099-96bf-8594e9c06456",
+              "total_score": 33,
+              "remaining_score": 468,
+              "darts_thrown": 3,
+              "under_pressure": null,
+              "throws": []
+            },
+            {
+              "turn_id": "01a0f808-d91f-705d-8e1c-bbc880e32b74",
+              "total_score": 60,
+              "remaining_score": 408,
+              "darts_thrown": 3,
+              "under_pressure": null,
+              "throws": []
+            },
+            {
+              "turn_id": "01a0f808-d91f-705d-8e1c-bbc881e83f69",
+              "total_score": 41,
+              "remaining_score": 367,
+              "darts_thrown": 3,
+              "under_pressure": null,
+              "throws": []
+            },
+            {
+              "turn_id": "01a0f808-d91f-705d-8e1c-bbc88313cb23",
+              "total_score": 42,
+              "remaining_score": 325,
+              "darts_thrown": 3,
+              "under_pressure": null,
+              "throws": []
+            },
+            {
+              "turn_id": "01a0f808-d91f-705d-8e1c-bbc883b479da",
+              "total_score": 77,
+              "remaining_score": 248,
+              "darts_thrown": 3,
+              "under_pressure": null,
+              "throws": []
+            },
+            {
+              "turn_id": "01a0f808-d91f-705d-8e1c-bbc8846dde46",
+              "total_score": 41,
+              "remaining_score": 207,
+              "darts_thrown": 3,
+              "under_pressure": null,
+              "throws": []
+            },
+            {
+              "turn_id": "01a0f808-d920-71e5-b3fc-ce8f1f846669",
+              "total_score": 36,
+              "remaining_score": 171,
+              "darts_thrown": 3,
+              "under_pressure": null,
+              "throws": []
+            },
+            {
+              "turn_id": "01a0f808-d920-71e5-b3fc-ce8f2065f58d",
+              "total_score": 33,
+              "remaining_score": 138,
+              "darts_thrown": 3,
+              "under_pressure": null,
+              "throws": []
+            },
+            {
+              "turn_id": "01a0f808-d920-71e5-b3fc-ce8f216593e0",
+              "total_score": 41,
+              "remaining_score": 97,
+              "darts_thrown": 3,
+              "under_pressure": null,
+              "throws": []
+            },
+            {
+              "turn_id": "01a0f808-d920-71e5-b3fc-ce8f21b1e246",
+              "total_score": 73,
+              "remaining_score": 24,
+              "darts_thrown": 3,
+              "under_pressure": null,
+              "throws": []
+            },
+            {
+              "turn_id": "01a0f808-d920-71e5-b3fc-ce8f22aa86a9",
+              "total_score": 0,
+              "remaining_score": 24,
+              "darts_thrown": 3,
+              "under_pressure": null,
+              "throws": []
+            },
+            {
+              "turn_id": "01a0f808-d920-71e5-b3fc-ce8f22d18bf4",
+              "total_score": 0,
+              "remaining_score": 24,
+              "darts_thrown": 3,
+              "under_pressure": null,
+              "throws": []
+            },
+            {
+              "turn_id": "01a0f808-d921-7177-a61e-d49fbeef46c0",
+              "total_score": 0,
+              "remaining_score": 24,
+              "darts_thrown": 3,
+              "under_pressure": null,
+              "throws": []
+            },
+            {
+              "turn_id": "01a0f808-d921-7177-a61e-d49fc0586149",
+              "total_score": 11,
+              "remaining_score": 13,
+              "darts_thrown": 3,
+              "under_pressure": null,
+              "throws": []
+            },
+            {
+              "turn_id": "01a0f808-d921-7177-a61e-d49fc19ddd24",
+              "total_score": 0,
+              "remaining_score": 13,
+              "darts_thrown": 3,
+              "under_pressure": null,
+              "throws": []
+            },
+            {
+              "turn_id": "01a0f808-d921-7177-a61e-d49fc2c1cd1c",
+              "total_score": 0,
+              "remaining_score": 13,
+              "darts_thrown": 3,
+              "under_pressure": null,
+              "throws": []
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}
