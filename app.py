@@ -19,10 +19,10 @@ PLAYER = "Efe"
 st.set_page_config(page_title="Dart Analiz", page_icon="🎯", layout="wide")
 
 # ============================================================
-# KİMLİK DOĞRULAMA
+# KİMLİK DOĞRULAMA (opsiyonel admin girişi)
+# Varsayılan: visitor — login olmadan herkes verileri görebilir.
+# Admin girişi sidebar'daki expander'dan yapılır.
 # ============================================================
-# Secrets'dan credentials ve cookie ayarlarını dict olarak al
-# (Secrets read-only olduğu için dict'e çeviriyoruz)
 credentials = {
     "usernames": {
         username: dict(st.secrets["credentials"]["usernames"][username])
@@ -42,19 +42,11 @@ authenticator = stauth.Authenticate(
     cookie_config["expiry_days"],
 )
 
-name, auth_status, username = authenticator.login(location="main")
-
-if auth_status is False:
-    st.error("❌ Kullanıcı adı veya şifre hatalı")
-    st.stop()
-
-if auth_status is None:
-    st.warning("👋 Lütfen kullanıcı adı ve şifrenizi girin")
-    st.stop()
-
-st.session_state["role"] = credentials["usernames"][username].get("role", "user")
-st.session_state["name"] = name
-st.session_state["username"] = username
+# Varsayılan rol: visitor
+if "role" not in st.session_state:
+    st.session_state["role"] = "visitor"
+    st.session_state["name"] = "Ziyaretçi"
+    st.session_state["username"] = None
 # ============================================================
 
 # ---------------------------------------------------------------- DİL / LANGUAGE
@@ -77,6 +69,9 @@ EN = {
     "**11.** Kaydet ve sayfayı yenile.": "**11.** Save and refresh the page.",
     "💡 Token'ı bir kere aldıktan sonra uzun süre kullanabilirsin.": "💡 Once you have the token you can use it for a long time.",
     "🔑 Token Nasıl Alınır?": "🔑 How to get the token",
+    "🔑 Admin Girişi": "🔑 Admin Login",
+    "👤 Ziyaretçi": "👤 Visitor",
+    "🚪 Admin Çıkışı": "🚪 Admin Logout",
     "✅ Token aktif": "✅ Token active",
     "⚙️ İşlemler": "⚙️ Actions",
     "🔄 YENİ MAÇLARI ÇEK": "🔄 FETCH NEW MATCHES",
@@ -86,6 +81,7 @@ EN = {
     "Güncelleme tamamlandı!": "Update completed!",
     "❌ Hata oluştu": "❌ An error occurred",
     "Hata oluştu": "An error occurred",
+    "❌ Hatalı giriş": "❌ Invalid login",
     "Hata": "Error",
     "📥 URL ile Maç Ekle": "📥 Add Match by URL",
     "DartCounter maç URL'si:": "DartCounter match URL:",
@@ -138,7 +134,7 @@ EN = {
     "Rakip Bazlı İstatistik": "Stats by Opponent",
     "Rakip Bazlı Ortalamam": "My Average by Opponent",
     "🎯 Double Deneme Analizi": "🎯 Double Attempt Analysis",
-    "Double denemesi: Kalan puan ≤ 40 ve çift sayı veya 50 (bull).": "Double attempt: remaining score ≤ 40 and even, or 50 (bull).",
+    "Double denemesi: Leg içinde kalan puan ilk kez ≤ 40 olduğunda, o leg bitene kadar tüm turlar double denemesidir.": "Double attempt: Once remaining score first drops to ≤ 40 in a leg, all subsequent turns in that leg count as double attempts.",
     "Toplam Double Denemesi": "Total Double Attempts",
     "Başarısız Double": "Failed Doubles",
     "Double Başarı %": "Double Success %",
@@ -194,7 +190,6 @@ st.title(t("🎯 DartCounter Analiz Panosu"))
 
 def check_token():
     try:
-        import streamlit as st
         if "DARTCOUNTER_TOKEN" in st.secrets:
             token = str(st.secrets["DARTCOUNTER_TOKEN"]).strip()
             if token and len(token) > 20:
@@ -273,41 +268,106 @@ def refresh_cache():
 
 
 def is_double_attempt(remaining_before):
+    """Satır bazlı kontrol (fallback için)."""
     if remaining_before is None:
         return False
     try:
         rb = int(remaining_before)
     except (ValueError, TypeError):
         return False
-    if rb > 0 and rb <= 40 and rb % 2 == 0:
+    if 0 < rb <= 40 and rb % 2 == 0:
         return True
     if rb == 50:
         return True
     return False
 
 
+def mark_double_attempts(throws_df):
+    """
+    Leg bazlı double denemesi işaretler.
+    Kural: Leg içinde oyuncu ilk kez kalan puanı ≤ 40 olduğunda (veya 50 bull),
+    o leg'in sonuna kadar TÜM turlar double denemesi sayılır.
+    Tek sayıda kalsa bile (39, 15, 3 vb.) double'a nişan alıp kaçırmış demektir.
+    """
+    if throws_df.empty or 'leg_id' not in throws_df.columns:
+        df = throws_df.copy()
+        df['is_dbl'] = df['remaining_before'].apply(is_double_attempt)
+        return df
+
+    df = throws_df.sort_values(['leg_id', 'turn']).reset_index(drop=True).copy()
+    df['is_dbl'] = False
+
+    for leg_id, leg_df in df.groupby('leg_id', sort=False):
+        double_started = False
+        for idx, row in leg_df.iterrows():
+            rb = row['remaining_before']
+            if rb is None or pd.isna(rb):
+                continue
+            try:
+                rb = int(rb)
+            except (ValueError, TypeError):
+                continue
+
+            if not double_started:
+                if (0 < rb <= 40) or rb == 50:
+                    double_started = True
+
+            if double_started:
+                df.at[idx, 'is_dbl'] = True
+
+    return df
+
+
 def adjusted_stats(throws_df):
     if throws_df.empty:
         return 0, 0, 0, 0, 0
+
     total_score = throws_df['score_thrown'].sum()
     total_darts = throws_df['darts_thrown'].sum()
     normal_avg = (total_score / total_darts * 3) if total_darts > 0 else 0
-    tdf = throws_df.copy()
-    tdf['is_dbl'] = tdf['remaining_before'].apply(is_double_attempt)
+
+    tdf = mark_double_attempts(throws_df)
+
     num_dbl = int(tdf['is_dbl'].sum())
     num_failed = int(((tdf['is_dbl']) & (tdf['score_thrown'] == 0)).sum())
+
     filtered = tdf[~tdf['is_dbl']]
     if filtered.empty or filtered['darts_thrown'].sum() == 0:
         return normal_avg, 0, num_dbl, num_failed, normal_avg
+
     adj_avg = (filtered['score_thrown'].sum() / filtered['darts_thrown'].sum()) * 3
     return adj_avg, int(filtered['darts_thrown'].sum()), num_dbl, num_failed, normal_avg
 
 
+# ============================================================
+# SIDEBAR
+# ============================================================
 with st.sidebar:
-    st.success(f"👤 {st.session_state.get('name', '')}")
-    authenticator.logout("🚪 Çıkış Yap", location="sidebar")
+    # --- Admin girişi / çıkışı ---
+    if st.session_state.get("role") == "visitor":
+        with st.expander(t("🔑 Admin Girişi"), expanded=False):
+            name_input, auth_status, username_input = authenticator.login(
+                location="sidebar",
+                key="admin_login",
+            )
+            if auth_status:
+                st.session_state["role"] = credentials["usernames"][username_input].get("role", "user")
+                st.session_state["name"] = name_input
+                st.session_state["username"] = username_input
+                st.rerun()
+            elif auth_status is False:
+                st.error(t("❌ Hatalı giriş"))
+    else:
+        st.success(f"👤 {st.session_state.get('name', '')}")
+        if st.button(t("🚪 Admin Çıkışı"), use_container_width=True):
+            st.session_state["role"] = "visitor"
+            st.session_state["name"] = "Ziyaretçi"
+            st.session_state["username"] = None
+            st.rerun()
+
     st.divider()
 
+    # --- Token durumu ---
     token_ok, token_status = check_token()
     if not token_ok:
         with st.expander(t("🔑 Token Nasıl Alınır?"), expanded=True):
@@ -404,6 +464,7 @@ with st.sidebar:
     # Alt bilgi herkese görünsün
     st.caption(f"{t('Oyuncu')}: **{PLAYER}**")
     st.caption(f"{t('Veritabanı')}: `{DB_PATH}`")
+# ============================================================
 
 
 matches, throws, legs = load_data()
@@ -557,7 +618,7 @@ with tab3:
 
 with tab4:
     st.subheader(t("🎯 Double Deneme Analizi"))
-    st.caption(t("Double denemesi: Kalan puan ≤ 40 ve çift sayı veya 50 (bull)."))
+    st.caption(t("Double denemesi: Leg içinde kalan puan ilk kez ≤ 40 olduğunda, o leg bitene kadar tüm turlar double denemesidir."))
     col1, col2, col3 = st.columns(3)
     col1.metric(t("Toplam Double Denemesi"), int(total_dbl))
     col2.metric(t("Başarısız Double"), int(total_failed))
@@ -655,9 +716,10 @@ with tab6:
                             continue
                         with cols[i]:
                             st.write(t("**{p}** — {n} tur").format(p=player, n=len(p_throws)))
-                            p_throws['Dbl'] = p_throws['remaining_before'].apply(
-                                lambda x: '🎯' if is_double_attempt(x) else '')
-                            p_display = p_throws[
+                            p_marked = mark_double_attempts(p_throws)
+                            p_marked['Dbl'] = p_marked['is_dbl'].apply(
+                                lambda x: '🎯' if x else '')
+                            p_display = p_marked[
                                 ['turn', 'remaining_before', 'score_thrown', 'remaining_after', 'Dbl']].copy()
                             p_display.columns = [t('Tur'), t('Başlangıç'), t('Atış'), t('Kalan'), '🎯']
                             st.dataframe(p_display, use_container_width=True,
