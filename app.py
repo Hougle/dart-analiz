@@ -21,8 +21,19 @@ st.set_page_config(page_title="Dart Analiz", page_icon="🎯", layout="wide")
 # ============================================================
 # KİMLİK DOĞRULAMA
 # ============================================================
-credentials = st.secrets["credentials"]
-cookie_config = st.secrets["cookie"]
+# Secrets'dan credentials ve cookie ayarlarını dict olarak al
+# (Secrets read-only olduğu için dict'e çeviriyoruz)
+credentials = {
+    "usernames": {
+        username: dict(st.secrets["credentials"]["usernames"][username])
+        for username in st.secrets["credentials"]["usernames"]
+    }
+}
+cookie_config = {
+    "name": st.secrets["cookie"]["name"],
+    "key": st.secrets["cookie"]["key"],
+    "expiry_days": st.secrets["cookie"]["expiry_days"],
+}
 
 authenticator = stauth.Authenticate(
     credentials,
