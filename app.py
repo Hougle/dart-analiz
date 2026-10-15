@@ -164,6 +164,17 @@ st.title(t("🎯 DartCounter Analiz Panosu"))
 
 
 def check_token():
+    # 1) Streamlit Cloud (st.secrets) — öncelikli
+    try:
+        import streamlit as st
+        if "DARTCOUNTER_TOKEN" in st.secrets:
+            token = str(st.secrets["DARTCOUNTER_TOKEN"]).strip()
+            if token and len(token) > 20:
+                return True, "ok"
+    except Exception:
+        pass
+
+    # 2) Lokal .env dosyası
     env_path = Path(ENV_FILE)
     if not env_path.exists():
         return False, "no_file"
@@ -225,7 +236,7 @@ def is_double_attempt(remaining_before):
         rb = int(remaining_before)
     except (ValueError, TypeError):
         return False
-    if rb > 0 and rb <= 40:
+    if rb > 0 and rb <= 40 and rb % 2 == 0:
         return True
     if rb == 50:
         return True

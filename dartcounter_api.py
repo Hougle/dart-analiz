@@ -16,9 +16,21 @@ API_BASE = "https://api.dartcounter.net"
 
 
 def load_token():
+    # 1) Streamlit Cloud (st.secrets) — varsa öncelikli
+    try:
+        import streamlit as st
+        if "DARTCOUNTER_TOKEN" in st.secrets:
+            token = str(st.secrets["DARTCOUNTER_TOKEN"]).strip()
+            if token and len(token) > 20:
+                return token
+    except Exception:
+        pass
+
+    # 2) Lokal .env dosyası
     env_path = Path(ENV_FILE)
     if not env_path.exists():
-        raise FileNotFoundError(f"{ENV_FILE} bulunamadı.")
+        raise FileNotFoundError(
+            f"{ENV_FILE} bulunamadı ve st.secrets'ta DARTCOUNTER_TOKEN yok.")
     for line in env_path.read_text().splitlines():
         line = line.strip()
         if line.startswith("DARTCOUNTER_TOKEN="):
