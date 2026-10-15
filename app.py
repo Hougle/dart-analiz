@@ -8,6 +8,8 @@ import sys
 from pathlib import Path
 from datetime import datetime
 
+import streamlit_authenticator as stauth
+
 import practice_tab
 
 DB_PATH = "dart.db"
@@ -15,6 +17,34 @@ ENV_FILE = ".env"
 PLAYER = "Efe"
 
 st.set_page_config(page_title="Dart Analiz", page_icon="🎯", layout="wide")
+
+# ============================================================
+# KİMLİK DOĞRULAMA
+# ============================================================
+credentials = st.secrets["credentials"]
+cookie_config = st.secrets["cookie"]
+
+authenticator = stauth.Authenticate(
+    credentials,
+    cookie_config["name"],
+    cookie_config["key"],
+    cookie_config["expiry_days"],
+)
+
+name, auth_status, username = authenticator.login(location="main")
+
+if auth_status is False:
+    st.error("❌ Kullanıcı adı veya şifre hatalı")
+    st.stop()
+
+if auth_status is None:
+    st.warning("👋 Lütfen kullanıcı adı ve şifrenizi girin")
+    st.stop()
+
+st.session_state["role"] = credentials["usernames"][username].get("role", "user")
+st.session_state["name"] = name
+st.session_state["username"] = username
+# ============================================================
 
 # ---------------------------------------------------------------- DİL / LANGUAGE
 LANG = st.sidebar.radio("🌐 Dil / Language", ["TR", "EN"], horizontal=True, key="lang")
@@ -152,7 +182,6 @@ st.title(t("🎯 DartCounter Analiz Panosu"))
 
 
 def check_token():
-    # 1) Streamlit Cloud (st.secrets) — öncelikli
     try:
         import streamlit as st
         if "DARTCOUNTER_TOKEN" in st.secrets:
@@ -162,7 +191,6 @@ def check_token():
     except Exception:
         pass
 
-    # 2) Lokal .env dosyası
     env_path = Path(ENV_FILE)
     if not env_path.exists():
         return False, "no_file"
@@ -197,49 +225,20 @@ def show_token_help():
     st.info(t("💡 Token'ı bir kere aldıktan sonra uzun süre kullanabilirsin."))
 
 
-def get_db_connection():
-    """Turso varsa Turso'ya, yoksa lokal SQLite'a bağlanır (sadece import için)."""
-    import sqlite3
-    return sqlite3.connect(DB_PATH)
-
-    # Lokal .env kontrolü
-    env_path = Path(ENV_FILE)
-    if env_path.exists():
-        url = token = None
-        for line in env_path.read_text().splitlines():
-            line = line.strip()
-            if line.startswith("TURSO_DATABASE_URL="):
-                url = line.split("=", 1)[1].strip().strip('"').strip("'")
-            elif line.startswith("TURSO_AUTH_TOKEN="):
-                token = line.split("=", 1)[1].strip().strip('"').strip("'")
-        if url and token:
-            try:
-                import libsql_experimental as libsql
-                return libsql.connect(database=url, auth_token=token)
-            except Exception:
-                pass
-
-    # Fallback: lokal SQLite
-    return sqlite3.connect(DB_PATH)
-
-
 def load_data():
-    import dartcounter_api
     try:
-        # Turso üzerinden oku
+        import dartcounter_api
         matches_cols, matches_rows = dartcounter_api.turso_query(
             "SELECT * FROM matches ORDER BY date DESC")
         throws_cols, throws_rows = dartcounter_api.turso_query(
             "SELECT * FROM throws")
         legs_cols, legs_rows = dartcounter_api.turso_query(
             "SELECT * FROM legs")
-
         matches = pd.DataFrame(matches_rows, columns=matches_cols) if matches_rows else pd.DataFrame()
         throws = pd.DataFrame(throws_rows, columns=throws_cols) if throws_rows else pd.DataFrame()
         legs = pd.DataFrame(legs_rows, columns=legs_cols) if legs_rows else pd.DataFrame()
         return matches, throws, legs
-    except Exception as e:
-        # Fallback: lokal SQLite
+    except Exception:
         try:
             conn = sqlite3.connect(DB_PATH)
             matches = pd.read_sql_query("SELECT * FROM matches ORDER BY date DESC", conn)
@@ -294,6 +293,10 @@ def adjusted_stats(throws_df):
 
 
 with st.sidebar:
+    st.success(f"👤 {st.session_state.get('name', '')}")
+    authenticator.logout("🚪 Çıkış Yap", location="sidebar")
+    st.divider()
+
     token_ok, token_status = check_token()
     if not token_ok:
         with st.expander(t("🔑 Token Nasıl Alınır?"), expanded=True):
@@ -302,88 +305,92 @@ with st.sidebar:
     else:
         st.success(t("✅ Token aktif"))
 
-    st.header(t("⚙️ İşlemler"))
+    # --- Sadece admin aksiyonları görsün ---
+    if st.session_state.get("role") == "admin":
+        st.header(t("⚙️ İşlemler"))
 
-    if token_ok:
-        if st.button(t("🔄 YENİ MAÇLARI ÇEK"), use_container_width=True, type="primary"):
-            with st.spinner(f"{datetime.now().year} {t('maçları çekiliyor...')}"):
-                try:
-                    result = subprocess.run(
-                        [sys.executable, "list_all_matches.py", str(datetime.now().year)],
-                        capture_output=True, text=True, timeout=900
-                    )
-                    st.code(result.stdout[-2500:] if result.stdout else t("(çıktı yok)"))
-                    if result.returncode == 0:
-                        st.success(t("✅ Güncelleme tamamlandı!"))
-                        refresh_cache()
-                        st.rerun()
-                    else:
-                        st.error(t("❌ Hata oluştu"))
-                        if result.stderr:
-                            st.code(result.stderr[-1000:])
-                except Exception as e:
-                    st.error(f"{t('Hata')}: {e}")
+        if token_ok:
+            if st.button(t("🔄 YENİ MAÇLARI ÇEK"), use_container_width=True, type="primary"):
+                with st.spinner(f"{datetime.now().year} {t('maçları çekiliyor...')}"):
+                    try:
+                        result = subprocess.run(
+                            [sys.executable, "list_all_matches.py", str(datetime.now().year)],
+                            capture_output=True, text=True, timeout=900
+                        )
+                        st.code(result.stdout[-2500:] if result.stdout else t("(çıktı yok)"))
+                        if result.returncode == 0:
+                            st.success(t("✅ Güncelleme tamamlandı!"))
+                            refresh_cache()
+                            st.rerun()
+                        else:
+                            st.error(t("❌ Hata oluştu"))
+                            if result.stderr:
+                                st.code(result.stderr[-1000:])
+                    except Exception as e:
+                        st.error(f"{t('Hata')}: {e}")
+            st.divider()
+
+        practice_tab.sidebar_button(token_ok, t)
+
+        st.subheader(t("📥 URL ile Maç Ekle"))
+        url_input = st.text_input(
+            t("DartCounter maç URL'si:"),
+            placeholder="https://app.dartcounter.net/statistics/match/games/...",
+            key="url_input"
+        )
+        if st.button(t("Bu Maçı Ekle"), use_container_width=True):
+            if not token_ok:
+                st.error(t("Önce token gerekli."))
+            elif url_input.strip():
+                with st.spinner(t("İndiriliyor...")):
+                    try:
+                        result = subprocess.run(
+                            [sys.executable, "dartcounter_api.py", url_input.strip()],
+                            capture_output=True, text=True, timeout=60
+                        )
+                        st.code(result.stdout or t("(çıktı yok)"))
+                        if result.returncode == 0 and "✅" in result.stdout:
+                            st.success(t("Maç eklendi!"))
+                            refresh_cache()
+                            st.rerun()
+                        else:
+                            st.error(t("Hata oluştu"))
+                            if result.stderr:
+                                st.code(result.stderr[-1500:])
+                    except Exception as e:
+                        st.error(f"{t('Hata')}: {e}")
+            else:
+                st.warning(t("URL boş."))
+
+        st.divider()
+        st.subheader(t("🔄 Belirli Yılı Çek"))
+        year = st.number_input(t("Yıl:"), min_value=2020, max_value=2030,
+                               value=datetime.now().year, step=1)
+        if st.button(t("Bu Yılın Maçlarını Çek"), use_container_width=True):
+            if not token_ok:
+                st.error(t("Önce token gerekli."))
+            else:
+                with st.spinner(f"{year} {t('maçları çekiliyor...')}"):
+                    try:
+                        result = subprocess.run(
+                            [sys.executable, "list_all_matches.py", str(year)],
+                            capture_output=True, text=True, timeout=900
+                        )
+                        st.code(result.stdout[-4000:] if result.stdout else t("(çıktı yok)"))
+                        if result.returncode == 0:
+                            st.success(t("Güncelleme tamamlandı!"))
+                            refresh_cache()
+                            st.rerun()
+                        else:
+                            st.error(t("Hata"))
+                            if result.stderr:
+                                st.code(result.stderr[-1500:])
+                    except Exception as e:
+                        st.error(f"{t('Hata')}: {e}")
+
         st.divider()
 
-    practice_tab.sidebar_button(token_ok, t)
-
-    st.subheader(t("📥 URL ile Maç Ekle"))
-    url_input = st.text_input(
-        t("DartCounter maç URL'si:"),
-        placeholder="https://app.dartcounter.net/statistics/match/games/...",
-        key="url_input"
-    )
-    if st.button(t("Bu Maçı Ekle"), use_container_width=True):
-        if not token_ok:
-            st.error(t("Önce token gerekli."))
-        elif url_input.strip():
-            with st.spinner(t("İndiriliyor...")):
-                try:
-                    result = subprocess.run(
-                        [sys.executable, "dartcounter_api.py", url_input.strip()],
-                        capture_output=True, text=True, timeout=60
-                    )
-                    st.code(result.stdout or t("(çıktı yok)"))
-                    if result.returncode == 0 and "✅" in result.stdout:
-                        st.success(t("Maç eklendi!"))
-                        refresh_cache()
-                        st.rerun()
-                    else:
-                        st.error(t("Hata oluştu"))
-                        if result.stderr:
-                            st.code(result.stderr[-1500:])
-                except Exception as e:
-                    st.error(f"{t('Hata')}: {e}")
-        else:
-            st.warning(t("URL boş."))
-
-    st.divider()
-    st.subheader(t("🔄 Belirli Yılı Çek"))
-    year = st.number_input(t("Yıl:"), min_value=2020, max_value=2030,
-                           value=datetime.now().year, step=1)
-    if st.button(t("Bu Yılın Maçlarını Çek"), use_container_width=True):
-        if not token_ok:
-            st.error(t("Önce token gerekli."))
-        else:
-            with st.spinner(f"{year} {t('maçları çekiliyor...')}"):
-                try:
-                    result = subprocess.run(
-                        [sys.executable, "list_all_matches.py", str(year)],
-                        capture_output=True, text=True, timeout=900
-                    )
-                    st.code(result.stdout[-4000:] if result.stdout else t("(çıktı yok)"))
-                    if result.returncode == 0:
-                        st.success(t("Güncelleme tamamlandı!"))
-                        refresh_cache()
-                        st.rerun()
-                    else:
-                        st.error(t("Hata"))
-                        if result.stderr:
-                            st.code(result.stderr[-1500:])
-                except Exception as e:
-                    st.error(f"{t('Hata')}: {e}")
-
-    st.divider()
+    # Alt bilgi herkese görünsün
     st.caption(f"{t('Oyuncu')}: **{PLAYER}**")
     st.caption(f"{t('Veritabanı')}: `{DB_PATH}`")
 
