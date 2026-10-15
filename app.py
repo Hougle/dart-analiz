@@ -211,9 +211,13 @@ def show_token_help():
 
 def load_data():
     conn = sqlite3.connect(DB_PATH)
-    matches = pd.read_sql_query("SELECT * FROM matches ORDER BY date DESC", conn)
-    throws = pd.read_sql_query("SELECT * FROM throws", conn)
-    legs = pd.read_sql_query("SELECT * FROM legs", conn)
+    try:
+        matches = pd.read_sql_query("SELECT * FROM matches ORDER BY date DESC", conn)
+        throws = pd.read_sql_query("SELECT * FROM throws", conn)
+        legs = pd.read_sql_query("SELECT * FROM legs", conn)
+    except Exception:
+        # Tablolar yoksa boş DataFrame döndür
+        matches, throws, legs = pd.DataFrame(), pd.DataFrame(), pd.DataFrame()
     conn.close()
     return matches, throws, legs
 
@@ -354,6 +358,12 @@ with st.sidebar:
     st.caption(f"{t('Oyuncu')}: **{PLAYER}**")
     st.caption(f"{t('Veritabanı')}: `{DB_PATH}`")
 
+# --- Tabloları oluştur (Streamlit Cloud'da dart.db boş olabilir) ---
+try:
+    import dartcounter_api
+    dartcounter_api.setup_database()
+except Exception as e:
+    st.warning(f"DB setup warning: {e}")
 
 matches, throws, legs = load_data()
 if matches.empty:
