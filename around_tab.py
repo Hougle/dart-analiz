@@ -15,8 +15,10 @@ _EN = {
     "'{p}' adına Around the Clock oturumu bulunamadı.":
         "No Around the Clock sessions found for '{p}'.",
     "Segment": "Segment",
-    "Herhangi (S/D/T)": "Any (S/D/T)",
-    "Tümü (All)": "All",
+    "Tümü (Tüm modlar)": "All (all modes)",
+    "All": "All",
+    "Single": "Single",
+    "Double": "Double",
     "1'den 20'ye": "1 to 20",
     "Rastgele": "Random",
     "Solo": "Solo",
@@ -38,7 +40,13 @@ _EN = {
         "With few sessions the per-target averages are noisy; they become reliable as sessions accumulate.",
 }
 
-SEG = {'all': 'Tümü (All)', 'single': 'Single', 'double': 'Double'}
+# 'any' = tüm modlar (filtre yok), 'all' = sadece "All" modu
+SEG = {
+    'any': 'Tümü (Tüm modlar)',
+    'all': 'All',
+    'single': 'Single',
+    'double': 'Double',
+}
 MODE = {'low_to_high': "1'den 20'ye", 'random': 'Rastgele'}
 BULL_TARGET = 25  # around_targets tablosunda Bull = 25
 
@@ -101,20 +109,34 @@ def render(player, db_path, t=lambda s: s):
     bull_free_map = _bull_free_darts(targets, mine['atc_user_id'].tolist())
     mine['darts_bull_free'] = mine['atc_user_id'].map(bull_free_map)
 
-    # --- Segment seçimi: 'all' başta, gerçekten filtre uygulanmasın ---
+    # --- Segment seçimi ---
+    # 'any' her zaman başta, sonra veritabanında bulunan segmentler
     counts = mine['number_segment'].value_counts()
-    # Sıralama: all her zaman ilk, sonra en çok kullanılan segmentler
-    options = ['all']
-    options += [k for k in counts.index if k != 'all']
-    seg = st.selectbox(tt("Segment"), options, index=0,
-                       format_func=lambda k: tt(SEG.get(k, str(k))),
-                       key="atc_segment")
+    options = ['any']
+    for k in ('all', 'single', 'double'):
+        if k in counts.index:
+            options.append(k)
+    # Veritabanında başka değer varsa onları da ekle
+    for k in counts.index:
+        if k not in options:
+            options.append(k)
 
-    # 'all' seçildiğinde filtre uygulanmaz
-    if seg == 'all':
+    seg = st.selectbox(
+        tt("Segment"), options,
+        index=0,  # 'any' varsayılan
+        format_func=lambda k: tt(SEG.get(k, str(k))),
+        key="atc_segment",
+    )
+
+    # 'any' seçildiğinde filtre uygulanmaz — tüm modlar
+    if seg == 'any':
         df = mine.reset_index(drop=True).copy()
     else:
         df = mine[mine['number_segment'] == seg].reset_index(drop=True).copy()
+
+    if df.empty:
+        st.warning(f"Bu segment için oturum yok: {seg}")
+        return
 
     df['no'] = df.index + 1
     df['label'] = df['date'].astype(str).str[5:16]
@@ -124,7 +146,7 @@ def render(player, db_path, t=lambda s: s):
     if len(df) > 1:
         delta = f"{last - int(df['darts_thrown'].iloc[-2]):+d}"
 
-    # --- Metrikler: Bull'suz ortalama da eklendi ---
+    # --- Metrikler ---
     c1, c2, c3, c4, c5 = st.columns(5)
     c1.metric(t("Oturum"), len(df))
     c2.metric(tt("En az ok"), int(df['darts_thrown'].min()))
@@ -140,7 +162,6 @@ def render(player, db_path, t=lambda s: s):
     df['mode_txt'] = df['mode'].map(lambda m: tt(MODE.get(m, str(m))))
 
     fig = go.Figure()
-    # Bull'suz seri (varsa, arka planda ince)
     if mean_bf is not None:
         fig.add_trace(go.Scatter(
             x=df['no'], y=df['darts_bull_free'], mode='lines+markers',
@@ -149,7 +170,6 @@ def render(player, db_path, t=lambda s: s):
             marker=dict(size=7, color='#4ecdc4'),
             hovertemplate=("%{y} " + tt("Bull'suz ok") + "<extra></extra>"),
         ))
-    # Toplam ok serisi
     fig.add_trace(go.Scatter(
         x=df['no'], y=df['darts_thrown'], mode='lines+markers',
         name=t("Ok"),
@@ -197,7 +217,6 @@ def render(player, db_path, t=lambda s: s):
               .reset_index().sort_values('target'))
         by['name'] = by['target'].apply(
             lambda n: tt("Bull") if int(n) == BULL_TARGET else str(int(n)))
-        # Bull'u görsel olarak ayırt et
         by['is_bull'] = by['target'] == BULL_TARGET
         fig2 = px.bar(by, x='name', y='darts_needed', text_auto='.1f',
                       color='is_bull',
@@ -214,7 +233,7 @@ def render(player, db_path, t=lambda s: s):
             st.caption(tt("Az oturumda hedef ortalamaları gürültülüdür, "
                           "oturum sayısı arttıkça güvenilir olur."))
 
-    # --- Tablo: Bull'suz Ok kolonu eklendi ---
+    # --- Tablo ---
     show = df[['date', 'mode_txt', 'opp', 'darts_thrown',
                'darts_bull_free', 'hit_rate', 'duration_sec']].copy()
     show['hit_rate'] = show['hit_rate'].round(1)
