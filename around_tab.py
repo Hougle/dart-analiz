@@ -38,7 +38,8 @@ _EN = {
     "Genel ortalama": "Overall average",
     "Az oturumda hedef ortalamaları gürültülüdür, oturum sayısı arttıkça güvenilir olur.":
         "With few sessions the per-target averages are noisy; they become reliable as sessions accumulate.",
-        "Oturum Detayı ve Karşılaştırma": "Session Detail and Comparison",
+    # --- Yeni eklenenler ---
+    "Oturum Detayı ve Karşılaştırma": "Session Detail and Comparison",
     "Bir oturum seç, diğer oturumlarla hedef hedef karşılaştır.":
         "Pick a session, compare target by target with other sessions.",
     "Oturum seç:": "Select session:",
@@ -46,7 +47,6 @@ _EN = {
     "Bull'suz (seçili)": "Excl. Bull (selected)",
     "İlk 5 oturum ort.": "First 5 sessions avg.",
     "Son 5 oturum ort.": "Last 5 sessions avg.",
-    "Genel ortalama": "Overall average",
     "İlk 5 oturum": "First 5 sessions",
     "Son 5 oturum": "Last 5 sessions",
     "Hedef Bazlı Karşılaştırma": "Target-based Comparison",
@@ -92,10 +92,6 @@ def _load(db_path):
 
 
 def _bull_free_darts(targets_df, atc_user_ids):
-    """
-    Verilen oturumlar için Bull (target=25) hariç toplam ok sayısını döndürür.
-    Dönüş: {atc_user_id: bull_free_darts}
-    """
     if targets_df.empty:
         return {}
     sub = targets_df[targets_df['atc_user_id'].isin(atc_user_ids)]
@@ -122,30 +118,26 @@ def render(player, db_path, t=lambda s: s):
     mine['opp'] = mine['opp_level'].apply(
         lambda v: tt("Solo") if pd.isna(v) else f"DartBot ({int(v)})")
 
-    # --- Bull'suz ok sayısını hesapla ve mine'a ekle ---
     bull_free_map = _bull_free_darts(targets, mine['atc_user_id'].tolist())
     mine['darts_bull_free'] = mine['atc_user_id'].map(bull_free_map)
 
     # --- Segment seçimi ---
-    # 'any' her zaman başta, sonra veritabanında bulunan segmentler
     counts = mine['number_segment'].value_counts()
     options = ['any']
     for k in ('all', 'single', 'double'):
         if k in counts.index:
             options.append(k)
-    # Veritabanında başka değer varsa onları da ekle
     for k in counts.index:
         if k not in options:
             options.append(k)
 
     seg = st.selectbox(
         tt("Segment"), options,
-        index=0,  # 'any' varsayılan
+        index=0,
         format_func=lambda k: tt(SEG.get(k, str(k))),
         key="atc_segment",
     )
 
-    # 'any' seçildiğinde filtre uygulanmaz — tüm modlar
     if seg == 'any':
         df = mine.reset_index(drop=True).copy()
     else:
@@ -163,7 +155,6 @@ def render(player, db_path, t=lambda s: s):
     if len(df) > 1:
         delta = f"{last - int(df['darts_thrown'].iloc[-2]):+d}"
 
-    # --- Metrikler ---
     c1, c2, c3, c4, c5 = st.columns(5)
     c1.metric(t("Oturum"), len(df))
     c2.metric(tt("En az ok"), int(df['darts_thrown'].min()))
@@ -274,11 +265,10 @@ def render(player, db_path, t=lambda s: s):
         selected = df_sorted.iloc[sel_idx]
         selected_atc_id = selected['atc_user_id']
 
-        # --- Hedef bazlı veri: seçili oturum + karşılaştırma grupları ---
+        # --- Hedef bazlı veri ---
         tg_all = targets[targets['atc_user_id'].isin(df_sorted['atc_user_id'])]
         tg_selected = tg_all[tg_all['atc_user_id'] == selected_atc_id]
 
-        # İlk 5 / Son 5 / Genel
         if len(df_sorted) >= 5:
             first5_ids = df_sorted.tail(5)['atc_user_id'].tolist()
             last5_ids = df_sorted.head(5)['atc_user_id'].tolist()
@@ -286,31 +276,34 @@ def render(player, db_path, t=lambda s: s):
             first5_ids = df_sorted['atc_user_id'].tolist()
             last5_ids = df_sorted['atc_user_id'].tolist()
 
-        # Hedef başına ortalama hesaplama
         def per_target_avg(ids):
             sub = tg_all[tg_all['atc_user_id'].isin(ids)]
             if sub.empty:
-                return pd.DataFrame()
+                return pd.DataFrame(columns=['target', 'avg_darts'])
             g = sub.groupby('target')['darts_needed'].mean().reset_index()
             g.columns = ['target', 'avg_darts']
             return g
 
-        sel_avg = tg_selected.groupby('target')['darts_needed'].mean().reset_index()
-        sel_avg.columns = ['target', 'selected']
+        # Tüm hedefler 1-20 + 25 (Bull) — birleştirmede eksik olmasın diye
+        all_targets = pd.DataFrame({'target': list(range(1, 21)) + [BULL_TARGET]})
+
+        sel_avg = (tg_selected.groupby('target')['darts_needed'].mean()
+                   .reset_index().rename(columns={'darts_needed': 'selected'}))
         first5_avg = per_target_avg(first5_ids).rename(columns={'avg_darts': 'first5'})
         last5_avg = per_target_avg(last5_ids).rename(columns={'avg_darts': 'last5'})
-        overall_avg = per_target_avg(df_sorted['atc_user_id'].tolist()).rename(
-            columns={'avg_darts': 'overall'})
+        overall_avg = (per_target_avg(df_sorted['atc_user_id'].tolist())
+                       .rename(columns={'avg_darts': 'overall'}))
 
-        # Birleştir
-        comp = sel_avg.merge(first5_avg, on='target', how='outer') \
-                      .merge(last5_avg, on='target', how='outer') \
-                      .merge(overall_avg, on='target', how='outer') \
-                      .sort_values('target').reset_index(drop=True)
+        comp = (all_targets
+                .merge(sel_avg, on='target', how='left')
+                .merge(first5_avg, on='target', how='left')
+                .merge(last5_avg, on='target', how='left')
+                .merge(overall_avg, on='target', how='left')
+                .sort_values('target').reset_index(drop=True))
         comp['name'] = comp['target'].apply(
             lambda n: tt("Bull") if int(n) == BULL_TARGET else str(int(n)))
 
-        # --- Üst metrikler: seçili oturum vs genel ortalama ---
+        # --- Üst metrikler ---
         sel_total = int(selected['darts_thrown'])
         sel_bf = selected.get('darts_bull_free')
         sel_bf = int(sel_bf) if pd.notna(sel_bf) else None
@@ -330,30 +323,26 @@ def render(player, db_path, t=lambda s: s):
         m4.metric(tt("Son 5 oturum ort."), f"{last5_mean:.1f}")
         m5.metric(tt("Genel ortalama"), f"{overall_mean:.1f}")
 
-        # --- Hedef bazlı karşılaştırma grafiği ---
+        # --- Karşılaştırma grafiği ---
         fig_cmp = go.Figure()
-        # Genel ortalama (arka plan)
         fig_cmp.add_trace(go.Bar(
             x=comp['name'], y=comp['overall'],
             name=tt("Genel ortalama"),
             marker_color='rgba(180,180,180,0.35)',
             hovertemplate="%{y:.1f} " + tt("Ok") + "<extra></extra>",
         ))
-        # İlk 5 ortalama
         fig_cmp.add_trace(go.Bar(
             x=comp['name'], y=comp['first5'],
             name=tt("İlk 5 oturum"),
             marker_color='rgba(78,205,196,0.55)',
             hovertemplate="%{y:.1f} " + tt("Ok") + "<extra></extra>",
         ))
-        # Son 5 ortalama
         fig_cmp.add_trace(go.Bar(
             x=comp['name'], y=comp['last5'],
             name=tt("Son 5 oturum"),
             marker_color='rgba(255,159,64,0.7)',
             hovertemplate="%{y:.1f} " + tt("Ok") + "<extra></extra>",
         ))
-        # Seçili oturum
         fig_cmp.add_trace(go.Scatter(
             x=comp['name'], y=comp['selected'],
             name=tt("Seçili oturum"),
@@ -376,15 +365,16 @@ def render(player, db_path, t=lambda s: s):
         )
         st.plotly_chart(fig_cmp, use_container_width=True)
 
-        # --- Fark tablosu (seçili vs genel) ---
+        # --- Fark tablosu ---
         comp_tbl = comp.copy()
         comp_tbl['diff'] = (comp_tbl['selected'] - comp_tbl['overall']).round(1)
         comp_tbl['status'] = comp_tbl['diff'].apply(
-            lambda d: '🟢' if d < -1 else ('🔴' if d > 1 else '⚪') if pd.notna(d) else '—')
+            lambda d: '🟢' if pd.notna(d) and d < -1
+            else ('🔴' if pd.notna(d) and d > 1 else '⚪'))
         tbl = comp_tbl[['name', 'selected', 'overall', 'first5', 'last5', 'diff', 'status']].copy()
         tbl.columns = [tt('Hedef'), tt('Seçili'), tt('Genel'),
                        tt('İlk 5'), tt('Son 5'), tt('Fark'), '']
-        for c in ['selected', 'overall', 'first5', 'last5', 'diff']:
+        for c in [tt('Seçili'), tt('Genel'), tt('İlk 5'), tt('Son 5'), tt('Fark')]:
             tbl[c] = tbl[c].round(1)
         st.dataframe(tbl, use_container_width=True, hide_index=True)
 
