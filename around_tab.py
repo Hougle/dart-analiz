@@ -254,7 +254,6 @@ def render(player, db_path, t=lambda s: s):
                            margin=dict(t=80), showlegend=False)
         fig2.update_xaxes(tickfont=dict(size=10))
         ui_helpers.chart(fig2, key="atc_per_target")
-        st.plotly_chart(fig2, use_container_width=True)
         if len(df) < 5:
             st.caption(tt("Az oturumda hedef ortalamaları gürültülüdür, "
                           "oturum sayısı arttıkça güvenilir olur."))

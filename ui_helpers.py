@@ -75,21 +75,28 @@ def chart(fig, key=None):
             font=dict(size=11),
         ),
     )
-    st.plotly_chart(fig, use_container_width=True, key=key)
+    kwargs = {"use_container_width": True}
+    if key is not None:
+        kwargs["key"] = key
+    st.plotly_chart(fig, **kwargs)
 
 
 def mobile_dataframe(df, priority_cols=None, height=None, key=None):
     """Mobilde öncelikli kolonları gösterir; geri kalanı expander'a koyar."""
+    kwargs = {"use_container_width": True, "hide_index": True}
+    if height is not None:
+        kwargs["height"] = height
+    if key is not None:
+        kwargs["key"] = key
+
     if priority_cols:
         available = [c for c in priority_cols if c in df.columns]
         if available:
-            st.dataframe(df[available], use_container_width=True,
-                         hide_index=True, height=height, key=key)
+            st.dataframe(df[available], **kwargs)
             others = [c for c in df.columns if c not in available]
             if others:
                 with st.expander(f"➕ Tüm kolonlar ({len(others)} ek)"):
                     st.dataframe(df[others], use_container_width=True,
                                  hide_index=True)
             return
-    st.dataframe(df, use_container_width=True, hide_index=True,
-                 height=height, key=key)
+    st.dataframe(df, **kwargs)
