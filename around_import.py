@@ -1,10 +1,9 @@
 """
-DartCounter Around the Clock oturumlarını çeker ve dart.db'ye yazar.
+DartCounter Around the Clock oturumlarını çeker ve Turso'ya yazar.
 Kullanım:
     python3 around_import.py              # bu yıl
     python3 around_import.py 2025 2026    # belirli yıllar
 """
-import sqlite3
 import sys
 from datetime import datetime
 from pathlib import Path
@@ -12,44 +11,57 @@ from pathlib import Path
 import requests
 
 sys.path.insert(0, str(Path(__file__).parent))
-from dartcounter_api import load_token, DB_PATH, API_BASE
+from dartcounter_api import (
+    load_token, DB_PATH, API_BASE,
+    turso_execute, turso_query, turso_execute_script, _turso_available,
+)
 from practice_import import to_date_str
 
 
+ATC_SCHEMA = """
+CREATE TABLE IF NOT EXISTS around_sessions (
+    atc_user_id INTEGER PRIMARY KEY,
+    session_id INTEGER,
+    user_id INTEGER,
+    date TEXT,
+    started_at INTEGER,
+    duration_sec INTEGER,
+    mode TEXT,
+    number_segment TEXT,
+    hits TEXT,
+    throwout TEXT,
+    has_opponents INTEGER,
+    player_name TEXT,
+    is_cpu INTEGER,
+    cpu_level INTEGER,
+    result TEXT,
+    total_score INTEGER,
+    darts_thrown INTEGER,
+    darts_hit INTEGER,
+    hit_rate REAL
+);
+CREATE TABLE IF NOT EXISTS around_targets (
+    atc_user_id INTEGER,
+    seq INTEGER,
+    target INTEGER,
+    darts_needed INTEGER,
+    PRIMARY KEY (atc_user_id, seq)
+);
+"""
+
+
 def setup_tables():
-    conn = sqlite3.connect(DB_PATH)
-    conn.executescript("""
-    CREATE TABLE IF NOT EXISTS around_sessions (
-        atc_user_id INTEGER PRIMARY KEY,
-        session_id INTEGER,
-        user_id INTEGER,
-        date TEXT,
-        started_at INTEGER,
-        duration_sec INTEGER,
-        mode TEXT,
-        number_segment TEXT,
-        hits TEXT,
-        throwout TEXT,
-        has_opponents INTEGER,
-        player_name TEXT,
-        is_cpu INTEGER,
-        cpu_level INTEGER,
-        result TEXT,
-        total_score INTEGER,
-        darts_thrown INTEGER,
-        darts_hit INTEGER,
-        hit_rate REAL
-    );
-    CREATE TABLE IF NOT EXISTS around_targets (
-        atc_user_id INTEGER,
-        seq INTEGER,
-        target INTEGER,
-        darts_needed INTEGER,
-        PRIMARY KEY (atc_user_id, seq)
-    );
-    """)
-    conn.commit()
-    return conn
+    if _turso_available():
+        turso_execute_script(ATC_SCHEMA)
+        print("📦 ATC tabloları Turso'da hazır.")
+        return None
+    else:
+        import sqlite3
+        conn = sqlite3.connect(DB_PATH)
+        conn.executescript(ATC_SCHEMA)
+        conn.commit()
+        print(f"📦 ATC tabloları lokal SQLite'ta hazır: {DB_PATH}")
+        return conn
 
 
 def fetch_page(token, year, page=1, limit=25):
@@ -74,22 +86,37 @@ def fetch_page(token, year, page=1, limit=25):
     return r.json()
 
 
+def _exists(atc_user_id, conn):
+    if _turso_available():
+        _, rows = turso_query(
+            "SELECT 1 FROM around_sessions WHERE atc_user_id=?",
+            [atc_user_id])
+        return len(rows) > 0
+    c = conn.cursor()
+    c.execute("SELECT 1 FROM around_sessions WHERE atc_user_id=?", (atc_user_id,))
+    return c.fetchone() is not None
+
+
+def _insert(sql, args, conn):
+    if _turso_available():
+        turso_execute(sql, list(args))
+    else:
+        conn.execute(sql, args)
+
+
 def save_session(conn, s):
-    """Oturumdaki her oyuncu satırını yazar. Yeni eklenen satır sayısını döndürür."""
     settings = s.get("settings", {})
     started = s.get("started_at")
     finished = s.get("finished_at")
     duration = (finished - started) if isinstance(started, (int, float)) \
         and isinstance(finished, (int, float)) else None
     added = 0
-    c = conn.cursor()
 
     for u in s.get("users", []):
         atc_user_id = u.get("around_the_clock_user_id")
         if atc_user_id is None:
             continue
-        c.execute("SELECT 1 FROM around_sessions WHERE atc_user_id=?", (atc_user_id,))
-        if c.fetchone():
+        if _exists(atc_user_id, conn):
             continue
 
         turns = u.get("turns", [])
@@ -97,30 +124,33 @@ def save_session(conn, s):
         if darts is None:
             darts = sum((t.get("amount_of_throws_needed") or 0) for t in turns)
 
-        c.execute("""INSERT INTO around_sessions
-                     (atc_user_id, session_id, user_id, date, started_at, duration_sec,
-                      mode, number_segment, hits, throwout, has_opponents,
-                      player_name, is_cpu, cpu_level, result,
-                      total_score, darts_thrown, darts_hit, hit_rate)
-                     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
-                  (atc_user_id, s["id"], u.get("user_id"), to_date_str(started),
-                   started, duration, settings.get("mode"),
-                   settings.get("number_segment"), settings.get("hits"),
-                   settings.get("throwout"),
-                   1 if settings.get("has_opponents") else 0,
-                   u.get("player_name"), 1 if u.get("is_cpu") else 0,
-                   u.get("cpu_level"), u.get("result"), u.get("total_score"),
-                   darts, u.get("darts_hit"), u.get("hit_rate")))
+        _insert("""INSERT INTO around_sessions
+                   (atc_user_id, session_id, user_id, date, started_at,
+                    duration_sec, mode, number_segment, hits, throwout,
+                    has_opponents, player_name, is_cpu, cpu_level, result,
+                    total_score, darts_thrown, darts_hit, hit_rate)
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                (atc_user_id, s["id"], u.get("user_id"),
+                 to_date_str(started), started, duration,
+                 settings.get("mode"), settings.get("number_segment"),
+                 settings.get("hits"), settings.get("throwout"),
+                 1 if settings.get("has_opponents") else 0,
+                 u.get("player_name"), 1 if u.get("is_cpu") else 0,
+                 u.get("cpu_level"), u.get("result"), u.get("total_score"),
+                 darts, u.get("darts_hit"), u.get("hit_rate")),
+                conn)
 
         for seq, t in enumerate(turns, start=1):
-            c.execute("""INSERT INTO around_targets
-                         (atc_user_id, seq, target, darts_needed)
-                         VALUES (?, ?, ?, ?)""",
-                      (atc_user_id, seq, t.get("number_to_throw"),
-                       t.get("amount_of_throws_needed")))
+            _insert("""INSERT INTO around_targets
+                       (atc_user_id, seq, target, darts_needed)
+                       VALUES (?, ?, ?, ?)""",
+                    (atc_user_id, seq, t.get("number_to_throw"),
+                     t.get("amount_of_throws_needed")),
+                    conn)
         added += 1
 
-    conn.commit()
+    if not _turso_available() and added:
+        conn.commit()
     return added
 
 
@@ -137,7 +167,8 @@ def main():
             data = fetch_page(token, year, page=page)
             sessions = data.get("data", [])
             last_page = data.get("last_page", 1)
-            print(f"  Sayfa {page}/{last_page} — {len(sessions)} oturum (toplam {data.get('total', 0)})")
+            print(f"  Sayfa {page}/{last_page} — {len(sessions)} oturum "
+                  f"(toplam {data.get('total', 0)})")
 
             for s in sessions:
                 try:
@@ -147,7 +178,6 @@ def main():
                     else:
                         skipped += 1
                 except Exception as e:
-                    conn.rollback()
                     errors += 1
                     print(f"  ❌ {s.get('id')}: {e}")
 
@@ -155,7 +185,8 @@ def main():
                 break
             page += 1
 
-    conn.close()
+    if conn:
+        conn.close()
     print(f"\n✅ Yeni: {new}  ⏭  Atlanan: {skipped}  ❌ Hata: {errors}")
 
 

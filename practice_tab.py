@@ -14,6 +14,7 @@ import plotly.graph_objects as go
 import streamlit as st
 
 import around_tab
+import ui_helpers
 from around_tab import make_translator
 
 # Bu sekmeye özel ek çeviriler (app.py'deki sözlükte olmayanlar)
@@ -30,6 +31,20 @@ _EN = {
 
 
 def _load(db_path):
+    from dartcounter_api import turso_query, _turso_available
+    if _turso_available():
+        try:
+            cols, rows = turso_query(
+                "SELECT * FROM practice_sessions ORDER BY started_at")
+            sessions = pd.DataFrame(rows, columns=cols) if rows else pd.DataFrame()
+            cols, rows = turso_query("SELECT * FROM practice_turns")
+            turns = pd.DataFrame(rows, columns=cols) if rows else pd.DataFrame()
+            return sessions, turns
+        except Exception as e:
+            print(f"[practice_tab] Turso hata: {e}")
+            return pd.DataFrame(), pd.DataFrame()
+
+    # Lokal fallback
     conn = sqlite3.connect(db_path)
     try:
         sessions = pd.read_sql_query(
@@ -39,7 +54,6 @@ def _load(db_path):
         sessions, turns = pd.DataFrame(), pd.DataFrame()
     conn.close()
     return sessions, turns
-
 
 def sidebar_button(token_ok, t=lambda s: s):
     if not token_ok:
@@ -160,12 +174,14 @@ def _render_score_training(player, db_path, t, tt):
         delta = f"{last - sessions['avg_3dart'].iloc[-2]:+.2f}"
     last5 = sessions['avg_3dart'].tail(5).mean()
 
-    c1, c2, c3, c4, c5 = st.columns(5)
-    c1.metric(t("Oturum"), len(sessions))
-    c2.metric(t("Ortalama (3-dart)"), f"{sessions['avg_3dart'].mean():.2f}")
-    c3.metric(t("En iyi oturum"), f"{sessions['avg_3dart'].max():.2f}")
-    c4.metric(t("Son oturum"), f"{last:.2f}", delta=delta)
-    c5.metric(tt("Son 5 oturum ort."), f"{last5:.2f}")
+    import ui_helpers
+    ui_helpers.metric_grid([
+        {"label": t("Oturum"), "value": len(sessions)},
+        {"label": t("Ortalama (3-dart)"), "value": f"{sessions['avg_3dart'].mean():.2f}"},
+        {"label": t("En iyi oturum"), "value": f"{sessions['avg_3dart'].max():.2f}"},
+        {"label": t("Son oturum"), "value": f"{last:.2f}", "delta": delta},
+        {"label": tt("Son 5 oturum ort."), "value": f"{last5:.2f}"},
+    ], cols=5)
 
     show_target = st.checkbox(tt("80 hedefini göster"), value=False)
 

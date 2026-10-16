@@ -81,6 +81,20 @@ def make_translator(t, extra):
 
 
 def _load(db_path):
+    from dartcounter_api import turso_query, _turso_available
+    if _turso_available():
+        try:
+            cols, rows = turso_query(
+                "SELECT * FROM around_sessions ORDER BY started_at")
+            sessions = pd.DataFrame(rows, columns=cols) if rows else pd.DataFrame()
+            cols, rows = turso_query("SELECT * FROM around_targets")
+            targets = pd.DataFrame(rows, columns=cols) if rows else pd.DataFrame()
+            return sessions, targets
+        except Exception as e:
+            print(f"[around_tab] Turso hata: {e}")
+            return pd.DataFrame(), pd.DataFrame()
+
+    # Lokal fallback
     conn = sqlite3.connect(db_path)
     try:
         sessions = pd.read_sql_query(
