@@ -12,6 +12,12 @@ import streamlit_authenticator as stauth
 
 import practice_tab
 
+import ui_helpers  # en üste, diğer importların yanına
+
+st.set_page_config(page_title="Dart Analiz", page_icon="🎯", layout="wide")
+
+ui_helpers.inject_mobile_css()  # set_page_config'ten hemen sonra
+
 DB_PATH = "dart.db"
 ENV_FILE = ".env"
 PLAYER = "Efe"
@@ -531,15 +537,16 @@ RESULT_ICON = {'won': '✅', 'lost': '❌'}
 MAIN_COLS = [t('Tarih'), t('Rakip'), t('Sonuç'), t('Ham Ort.'), t('Adjusted'), t('Rakip Ort.')]
 RAW_COLS = ['date', 'opponent', 'result', 'avg', 'adjusted_avg', 'opp_avg']
 
-col1, col2, col3, col4, col5, col6, col7 = st.columns(7)
-col1.metric(t("Toplam Maç"), total_matches)
-col2.metric(t("Galibiyet"), wins)
-col3.metric(t("Mağlubiyet"), losses)
-col4.metric(t("Kazanma %"), f"{win_rate:.1f}%")
-col5.metric(t("Ham Ort."), f"{overall_avg:.2f}")
-col6.metric(t("Adjusted"), f"{adj_avg_all:.2f}",
-            delta=f"+{adj_avg_all - overall_avg:.2f}")
-col7.metric(t("180 / 100+"), f"{efe_180s} / {efe_100s}")
+ui_helpers.metric_grid([
+    {"label": t("Toplam Maç"), "value": total_matches},
+    {"label": t("Galibiyet"), "value": wins},
+    {"label": t("Mağlubiyet"), "value": losses},
+    {"label": t("Kazanma %"), "value": f"{win_rate:.1f}%"},
+    {"label": t("Ham Ort."), "value": f"{overall_avg:.2f}"},
+    {"label": t("Adjusted"), "value": f"{adj_avg_all:.2f}",
+     "delta": f"+{adj_avg_all - overall_avg:.2f}"},
+    {"label": t("180 / 100+"), "value": f"{efe_180s} / {efe_100s}"},
+], cols=7)
 
 st.divider()
 

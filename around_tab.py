@@ -8,6 +8,7 @@ import pandas as pd
 import plotly.express as px
 import plotly.graph_objects as go
 import streamlit as st
+import ui_helpers
 
 _EN = {
     "Around the Clock verisi yok. Sidebar'dan 🎯 PRACTICE ÇEK butonuna bas.":
@@ -155,14 +156,16 @@ def render(player, db_path, t=lambda s: s):
     if len(df) > 1:
         delta = f"{last - int(df['darts_thrown'].iloc[-2]):+d}"
 
-    c1, c2, c3, c4, c5 = st.columns(5)
-    c1.metric(t("Oturum"), len(df))
-    c2.metric(tt("En az ok"), int(df['darts_thrown'].min()))
-    c3.metric(tt("Ortalama ok"), f"{df['darts_thrown'].mean():.1f}")
     bull_free_mean = df['darts_bull_free'].mean()
-    c4.metric(tt("Ortalama ok (Bull'suz)"),
-              f"{bull_free_mean:.1f}" if pd.notna(bull_free_mean) else "—")
-    c5.metric(t("Son oturum"), last, delta=delta, delta_color="inverse")
+    ui_helpers.metric_grid([
+        {"label": t("Oturum"), "value": len(df)},
+        {"label": tt("En az ok"), "value": int(df['darts_thrown'].min())},
+        {"label": tt("Ortalama ok"), "value": f"{df['darts_thrown'].mean():.1f}"},
+        {"label": tt("Ortalama ok (Bull'suz)"),
+         "value": f"{bull_free_mean:.1f}" if pd.notna(bull_free_mean) else "—"},
+        {"label": t("Son oturum"), "value": last,
+         "delta": delta, "delta_color": "inverse"},
+    ], cols=5)
 
     # --- Oturum başına ok sayısı grafiği ---
     mean_darts = float(df['darts_thrown'].mean())
@@ -206,14 +209,13 @@ def render(player, db_path, t=lambda s: s):
         lo = min(lo, float(df['darts_bull_free'].min()))
         hi = max(hi, float(df['darts_bull_free'].max()))
     pad = max(3.0, (hi - lo) * 0.15)
-    fig.update_xaxes(tickmode='array', tickvals=df['no'],
-                     ticktext=df['label'], tickangle=-90, title_text=t('Oturum'))
+    step = max(1, len(df) // 10)
+    fig.update_xaxes(tickmode='array', tickvals=df['no'][::step],
+                     ticktext=df['label'][::step], tickangle=-45,
+                     title_text=t('Oturum'), tickfont=dict(size=10))
     fig.update_yaxes(range=[max(0, lo - pad), hi + pad], title_text=t('Ok'))
-    fig.update_layout(title=tt("Oturum başına ok sayısı (az = iyi)"),
-                      height=420, margin=dict(t=80, b=20),
-                      legend=dict(orientation='h', yanchor='bottom',
-                                  y=1.02, xanchor='right', x=1))
-    st.plotly_chart(fig, use_container_width=True)
+    fig.update_layout(title=tt("Oturum başına ok sayısı (az = iyi)"))
+    ui_helpers.chart(fig, key="atc_darts_per_session")
 
     # --- Hedef başına ortalama ok ---
     tg = targets[targets['atc_user_id'].isin(df['atc_user_id'])]
@@ -236,6 +238,8 @@ def render(player, db_path, t=lambda s: s):
         fig2.update_yaxes(title_text=t('Ok'))
         fig2.update_layout(coloraxis_showscale=False, height=400,
                            margin=dict(t=80), showlegend=False)
+        fig2.update_xaxes(tickfont=dict(size=10))
+        ui_helpers.chart(fig2, key="atc_per_target")
         st.plotly_chart(fig2, use_container_width=True)
         if len(df) < 5:
             st.caption(tt("Az oturumda hedef ortalamaları gürültülüdür, "
@@ -311,17 +315,16 @@ def render(player, db_path, t=lambda s: s):
         first5_mean = float(df_sorted.tail(5)['darts_thrown'].mean()) if len(df_sorted) >= 5 else overall_mean
         last5_mean = float(df_sorted.head(5)['darts_thrown'].mean()) if len(df_sorted) >= 5 else overall_mean
 
-        m1, m2, m3, m4, m5 = st.columns(5)
-        m1.metric(tt("Seçili oturum"), sel_total,
-                  delta=f"{sel_total - overall_mean:+.1f}",
-                  delta_color="inverse")
-        if sel_bf is not None:
-            m2.metric(tt("Bull'suz (seçili)"), sel_bf)
-        else:
-            m2.metric(tt("Bull'suz (seçili)"), "—")
-        m3.metric(tt("İlk 5 oturum ort."), f"{first5_mean:.1f}")
-        m4.metric(tt("Son 5 oturum ort."), f"{last5_mean:.1f}")
-        m5.metric(tt("Genel ortalama"), f"{overall_mean:.1f}")
+        ui_helpers.metric_grid([
+            {"label": tt("Seçili oturum"), "value": sel_total,
+             "delta": f"{sel_total - overall_mean:+.1f}",
+             "delta_color": "inverse"},
+            {"label": tt("Bull'suz (seçili)"),
+             "value": sel_bf if sel_bf is not None else "—"},
+            {"label": tt("İlk 5 oturum ort."), "value": f"{first5_mean:.1f}"},
+            {"label": tt("Son 5 oturum ort."), "value": f"{last5_mean:.1f}"},
+            {"label": tt("Genel ortalama"), "value": f"{overall_mean:.1f}"},
+        ], cols=5)
 
         # --- Karşılaştırma grafiği ---
         fig_cmp = go.Figure()
@@ -357,13 +360,11 @@ def render(player, db_path, t=lambda s: s):
             title=tt("Hedef Bazlı Karşılaştırma"),
             xaxis_title=tt('Hedef'),
             yaxis_title=t('Ok'),
-            height=460,
             margin=dict(t=60, b=20),
-            legend=dict(orientation='h', yanchor='bottom',
-                        y=1.02, xanchor='right', x=1),
             template='plotly_dark',
         )
-        st.plotly_chart(fig_cmp, use_container_width=True)
+        fig_cmp.update_xaxes(tickangle=-45, tickfont=dict(size=10))
+        ui_helpers.chart(fig_cmp, key="atc_cmp")
 
         # --- Fark tablosu ---
         comp_tbl = comp.copy()
@@ -388,4 +389,7 @@ def render(player, db_path, t=lambda s: s):
     show.columns = [t('Tarih'), tt('Mod'), tt('Rakip'), t('Ok'),
                     tt("Bull'suz ok"),
                     tt('İsabet %'), tt('Süre (dk)')]
-    st.dataframe(show, use_container_width=True, hide_index=True)
+    ui_helpers.mobile_dataframe(
+        show,
+        priority_cols=[t('Tarih'), tt('Rakip'), t('Ok'), tt('İsabet %')],
+    )
