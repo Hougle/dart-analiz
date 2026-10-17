@@ -1,6 +1,6 @@
 """
 Practice Modülü ve Alt Sekmeleri (Score Training, Around the Clock, Singles Training)
-Gelişmiş Analiz ve Görselleştirmeler ile
+Alt alta ferah yerleşim ve gelişmiş grafikler ile
 """
 import streamlit as st
 import subprocess
@@ -72,7 +72,6 @@ def render(player_name, db_path, t_func):
         if df_p_sessions.empty:
             st.info("Henüz kaydedilmiş Score Training oturumu bulunmuyor.")
         else:
-            # Gelişmiş Metrikler
             total_sessions = len(df_p_sessions)
             avg_3dart = df_p_sessions["avg_3dart"].mean() if "avg_3dart" in df_p_sessions.columns else 0
             best_3dart = df_p_sessions["avg_3dart"].max() if "avg_3dart" in df_p_sessions.columns else 0
@@ -95,33 +94,29 @@ def render(player_name, db_path, t_func):
             else:
                 df_chart["Tarih_Format"] = df_chart["date"].astype(str)
 
-            # İki Kolonlu Grafik Düzeni
-            col_g1, col_g2 = st.columns(2)
-            
-            with col_g1:
-                fig_score = px.line(
-                    df_chart,
-                    x="Tarih_Format",
-                    y="avg_3dart",
-                    markers=True,
-                    title="📈 Zaman İçinde 3-Ok Ortalaması Trendi",
-                    labels={"Tarih_Format": "Tarih / Saat", "avg_3dart": "3-Ok Ortalaması"}
-                )
-                fig_score.update_traces(line_color="#ff6b35", marker=dict(size=8))
-                fig_score.update_layout(template="plotly_dark", margin=dict(t=40, b=20, l=20, r=20))
-                st.plotly_chart(fig_score, use_container_width=True)
+            # Grafikler ALT ALTA ve tam genişlikte
+            fig_score = px.line(
+                df_chart,
+                x="Tarih_Format",
+                y="avg_3dart",
+                markers=True,
+                title="📈 Zaman İçinde 3-Ok Ortalaması Trendi",
+                labels={"Tarih_Format": "Tarih / Saat", "avg_3dart": "3-Ok Ortalaması"}
+            )
+            fig_score.update_traces(line_color="#ff6b35", marker=dict(size=8))
+            fig_score.update_layout(template="plotly_dark", margin=dict(t=40, b=20, l=20, r=20))
+            st.plotly_chart(fig_score, use_container_width=True)
 
-            with col_g2:
-                fig_total = px.bar(
-                    df_chart,
-                    x="Tarih_Format",
-                    y="total_score",
-                    title="📊 Oturum Başına Elde Edilen Toplam Skorlar",
-                    labels={"Tarih_Format": "Tarih / Saat", "total_score": "Toplam Skor"}
-                )
-                fig_total.update_traces(marker_color="#4ecdc4")
-                fig_total.update_layout(template="plotly_dark", margin=dict(t=40, b=20, l=20, r=20))
-                st.plotly_chart(fig_total, use_container_width=True)
+            fig_total = px.bar(
+                df_chart,
+                x="Tarih_Format",
+                y="total_score",
+                title="📊 Oturum Başına Elde Edilen Toplam Skorlar",
+                labels={"Tarih_Format": "Tarih / Saat", "total_score": "Toplam Skor"}
+            )
+            fig_total.update_traces(marker_color="#4ecdc4")
+            fig_total.update_layout(template="plotly_dark", margin=dict(t=40, b=20, l=20, r=20))
+            st.plotly_chart(fig_total, use_container_width=True)
 
             with st.expander("📋 Detaylı Score Training Oturum Geçmişi"):
                 display_cols = [c for c in ["date", "training_mode", "rounds", "total_score", "darts_thrown", "avg_3dart"] if c in df_p_sessions.columns]
@@ -156,46 +151,29 @@ def render(player_name, db_path, t_func):
             else:
                 df_a_chart["Tarih_Format"] = df_a_chart["date"].astype(str)
 
-            col_ac1, col_ac2 = st.columns(2)
+            # ATC Grafikleri de ALT ALTA ve tam genişlikte
+            fig_ac = px.line(
+                df_a_chart,
+                x="Tarih_Format",
+                y="hit_rate",
+                markers=True,
+                title="📈 İsabet Oranı (%) Gelişim Grafiği",
+                labels={"Tarih_Format": "Tarih / Saat", "hit_rate": "İsabet Oranı (%)"}
+            )
+            fig_ac.update_traces(line_color="#4ecdc4", marker=dict(size=8))
+            fig_ac.update_layout(template="plotly_dark", margin=dict(t=40, b=20, l=20, r=20))
+            st.plotly_chart(fig_ac, use_container_width=True)
 
-            with col_ac1:
-                fig_ac = px.line(
-                    df_a_chart,
-                    x="Tarih_Format",
-                    y="hit_rate",
-                    markers=True,
-                    title="📈 İsabet Oranı (%) Gelişim Grafiği",
-                    labels={"Tarih_Format": "Tarih / Saat", "hit_rate": "İsabet Oranı (%)"}
-                )
-                fig_ac.update_traces(line_color="#4ecdc4", marker=dict(size=8))
-                fig_ac.update_layout(template="plotly_dark", margin=dict(t=40, b=20, l=20, r=20))
-                st.plotly_chart(fig_ac, use_container_width=True)
-
-            with col_ac2:
-                fig_darts_ac = px.bar(
-                    df_a_chart,
-                    x="Tarih_Format",
-                    y="darts_thrown",
-                    title="📊 Oturumda Atılan Toplam Ok Sayısı (Düşük Olması İyidir)",
-                    labels={"Tarih_Format": "Tarih / Saat", "darts_thrown": "Atılan Ok"}
-                )
-                fig_darts_ac.update_traces(marker_color="#ff6b35")
-                fig_darts_ac.update_layout(template="plotly_dark", margin=dict(t=40, b=20, l=20, r=20))
-                st.plotly_chart(fig_darts_ac, use_container_width=True)
-
-            # Hedef Segment Dağılımı (Eğer around_targets verisi varsa)
-            if not df_a_targets.empty:
-                st.markdown("### 🎯 Hedef Segment (Target) Performans Analizi")
-                # Hedef bazlı isabet ortalamalarını gruplayabiliriz
-                if "target" in df_a_targets.columns or "number_segment" in df_a_targets.columns:
-                    seg_col = "target" if "target" in df_a_targets.columns else "number_segment"
-                    fig_targets = px.histogram(
-                        df_a_targets,
-                        x=seg_col,
-                        title="Segment Bazlı İsabet Dağılımı",
-                        template="plotly_dark"
-                    )
-                    st.plotly_chart(fig_targets, use_container_width=True)
+            fig_darts_ac = px.bar(
+                df_a_chart,
+                x="Tarih_Format",
+                y="darts_thrown",
+                title="📊 Oturumda Atılan Toplam Ok Sayısı (Düşük Olması İyidir)",
+                labels={"Tarih_Format": "Tarih / Saat", "darts_thrown": "Atılan Ok"}
+            )
+            fig_darts_ac.update_traces(marker_color="#ff6b35")
+            fig_darts_ac.update_layout(template="plotly_dark", margin=dict(t=40, b=20, l=20, r=20))
+            st.plotly_chart(fig_darts_ac, use_container_width=True)
 
             with st.expander("📋 Detaylı Around the Clock Geçmişi"):
                 display_ac = [c for c in ["date", "mode", "total_score", "darts_thrown", "darts_hit", "hit_rate", "duration_sec"] if c in df_a_sessions.columns]
