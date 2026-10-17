@@ -32,14 +32,14 @@ def sidebar_button(token_ok, t_func):
 @st.cache_data(ttl=60)
 def load_all_practice_data():
     if _turso_available():
-        _, p_sessions = turso_query("SELECT * FROM practice_sessions ORDER BY started_at ASC")
+        p_cols, p_sessions = turso_query("SELECT * FROM practice_sessions ORDER BY started_at ASC")
         _, p_turns = turso_query("SELECT * FROM practice_turns")
-        _, a_sessions = turso_query("SELECT * FROM around_sessions ORDER BY started_at ASC")
+        a_cols, a_sessions = turso_query("SELECT * FROM around_sessions ORDER BY started_at ASC")
         _, a_targets = turso_query("SELECT * FROM around_targets")
 
-        df_p_sessions = pd.DataFrame(p_sessions) if p_sessions else pd.DataFrame()
+        df_p_sessions = pd.DataFrame(p_sessions, columns=p_cols) if p_sessions and p_cols else pd.DataFrame()
         df_p_turns = pd.DataFrame(p_turns) if p_turns else pd.DataFrame()
-        df_a_sessions = pd.DataFrame(a_sessions) if a_sessions else pd.DataFrame()
+        df_a_sessions = pd.DataFrame(a_sessions, columns=a_cols) if a_sessions and a_cols else pd.DataFrame()
         df_a_targets = pd.DataFrame(a_targets) if a_targets else pd.DataFrame()
     else:
         conn = sqlite3.connect(DB_PATH)
@@ -72,7 +72,6 @@ def render(player_name, db_path, t_func):
         if df_p_sessions.empty:
             st.info("Henüz kaydedilmiş Score Training oturumu bulunmuyor.")
         else:
-            # Metrik Kartları
             total_sessions = len(df_p_sessions)
             avg_3dart = df_p_sessions["avg_3dart"].mean() if "avg_3dart" in df_p_sessions.columns else 0
             total_score = df_p_sessions["total_score"].sum() if "total_score" in df_p_sessions.columns else 0
@@ -86,7 +85,6 @@ def render(player_name, db_path, t_func):
 
             st.markdown("---")
 
-            # Skor Gelişim Grafiği
             df_chart = df_p_sessions.copy()
             if "started_at" in df_chart.columns and df_chart["started_at"].notna().any():
                 df_chart["datetime"] = pd.to_datetime(df_chart["started_at"], unit="s", utc=True).dt.tz_convert("Europe/Istanbul")
@@ -107,9 +105,8 @@ def render(player_name, db_path, t_func):
             st.plotly_chart(fig_score, use_container_width=True)
 
             with st.expander("📋 Detaylı Score Training Geçmişi"):
-                display_p = df_p_sessions[["date", "training_mode", "rounds", "total_score", "darts_thrown", "avg_3dart"]].copy()
-                display_p.columns = ["Tarih", "Mod", "Tur", "Toplam Skor", "Ok Sayısı", "3-Ok Ort."]
-                st.dataframe(display_p, use_container_width=True, hide_index=True)
+                display_cols = [c for c in ["date", "training_mode", "rounds", "total_score", "darts_thrown", "avg_3dart"] if c in df_p_sessions.columns]
+                st.dataframe(df_p_sessions[display_cols], use_container_width=True, hide_index=True)
 
     # ==========================================
     # 2. AROUND THE CLOCK SUB-TAB
@@ -130,7 +127,6 @@ def render(player_name, db_path, t_func):
 
             st.markdown("---")
 
-            # ATC İsabet Oranı Grafiği
             df_a_chart = df_a_sessions.copy()
             if "started_at" in df_a_chart.columns and df_a_chart["started_at"].notna().any():
                 df_a_chart["datetime"] = pd.to_datetime(df_a_chart["started_at"], unit="s", utc=True).dt.tz_convert("Europe/Istanbul")
@@ -151,9 +147,8 @@ def render(player_name, db_path, t_func):
             st.plotly_chart(fig_ac, use_container_width=True)
 
             with st.expander("📋 Detaylı Around the Clock Geçmişi"):
-                display_a = df_a_sessions[["date", "mode", "total_score", "darts_thrown", "darts_hit", "hit_rate"]].copy()
-                display_a.columns = ["Tarih", "Mod", "Skor", "Ok Sayısı", "İsabet", "İsabet Oranı (%)"]
-                st.dataframe(display_a, use_container_width=True, hide_index=True)
+                display_ac = [c for c in ["date", "mode", "total_score", "darts_thrown", "darts_hit", "hit_rate"] if c in df_a_sessions.columns]
+                st.dataframe(df_a_sessions[display_ac], use_container_width=True, hide_index=True)
 
     # ==========================================
     # 3. SINGLES TRAINING SUB-TAB
