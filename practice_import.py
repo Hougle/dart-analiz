@@ -5,7 +5,7 @@ Kullanım:
     python3 practice_import.py 2025 2026    # belirli yıllar
 """
 import sys
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
 
 import requests
@@ -40,6 +40,58 @@ CREATE TABLE IF NOT EXISTS practice_turns (
     PRIMARY KEY (session_id, user_id, turn)
 );
 """
+
+
+def _parse_dt(v):
+    """
+    Tarih değerini unix timestamp (int) olarak döndürür.
+    Hem int/float hem ISO string kabul eder.
+    """
+    if v is None:
+        return None
+    # Zaten sayıysa
+    if isinstance(v, (int, float)):
+        if v > 1e11:  # milisaniye
+            return int(v / 1000)
+        return int(v)
+    # String ise
+    if isinstance(v, str):
+        s = v.strip()
+        if not s:
+            return None
+        # Sayı string mi?
+        try:
+            f = float(s)
+            if f > 1e11:
+                return int(f / 1000)
+            return int(f)
+        except ValueError:
+            pass
+        # ISO 8601: "2026-10-17T18:06:09.000000Z"
+        try:
+            s_clean = s.replace('Z', '+00:00')
+            if '.' in s_clean:
+                # mikrosaniyeleri temizle
+                base, frac = s_clean.split('.', 1)
+                if '+' in frac:
+                    s_clean = base + '+' + frac.split('+', 1)[1]
+                else:
+                    s_clean = base + '+00:00'
+            dt = datetime.fromisoformat(s_clean)
+            return int(dt.timestamp())
+        except Exception:
+            pass
+    return None
+
+
+def _to_date_str(ts):
+    """Unix timestamp → 'YYYY-MM-DD HH:MM' formatı."""
+    if ts is None:
+        return ""
+    try:
+        return datetime.fromtimestamp(int(ts)).strftime("%Y-%m-%d %H:%M")
+    except Exception:
+        return ""
 
 
 def setup_practice_tables():
@@ -79,16 +131,7 @@ def fetch_page(token, year, page=1, limit=25):
     return r.json()
 
 
-def to_date_str(ts):
-    if not isinstance(ts, (int, float)):
-        return str(ts or "")
-    if ts > 1e11:
-        ts = ts / 1000
-    return datetime.fromtimestamp(ts).strftime("%Y-%m-%d %H:%M")
-
-
 def _session_exists(session_id, user_id, conn):
-    """Turso veya SQLite'ta satır var mı?"""
     if _turso_available():
         _, rows = turso_query(
             "SELECT 1 FROM practice_sessions WHERE session_id=? AND user_id=?",
@@ -101,21 +144,46 @@ def _session_exists(session_id, user_id, conn):
 
 
 def _insert(sql, args, conn):
-    """Turso veya SQLite'a INSERT atar."""
     if _turso_available():
         turso_execute(sql, list(args))
     else:
         conn.execute(sql, args)
 
 
+def _f(x):
+    """Garantili float."""
+    if x is None:
+        return None
+    try:
+        import math
+        f = float(x)
+        if math.isnan(f) or math.isinf(f):
+            return None
+        return f
+    except (ValueError, TypeError):
+        return None
+
+
+def _i(x):
+    """Garantili int."""
+    if x is None:
+        return None
+    try:
+        return int(float(x))
+    except (ValueError, TypeError):
+        return None
+
+
 def save_session(conn, s):
     """Bir oturumu yazar. Yeni eklenen oyuncu satırı sayısını döndürür."""
     session_id = s["id"]
     settings = s.get("settings", {})
-    started = s.get("started_at")
-    finished = s.get("finished_at")
-    duration = (finished - started) if isinstance(started, (int, float)) \
-        and isinstance(finished, (int, float)) else None
+
+    # Tarihleri güvenli parse et
+    started = _parse_dt(s.get("started_at"))
+    finished = _parse_dt(s.get("finished_at"))
+    duration = (finished - started) if (started is not None and finished is not None) else None
+
     added = 0
 
     for u in s.get("users", []):
@@ -133,23 +201,36 @@ def save_session(conn, s):
         if avg is None:
             avg = (total / darts * 3) if darts else None
 
-        _insert("""INSERT INTO practice_sessions
-                   (session_id, user_id, date, started_at, duration_sec,
-                    training_mode, rounds, player_name, total_score,
-                    darts_thrown, avg_3dart)
-                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
-                (session_id, uid, to_date_str(started), started, duration,
-                 settings.get("training_mode"), settings.get("number_of_rounds"),
-                 u.get("player_name"), total, darts,
-                 float(avg) if avg is not None else None),
-                conn)
+        _insert(
+            """INSERT INTO practice_sessions
+               (session_id, user_id, date, started_at, duration_sec,
+                training_mode, rounds, player_name, total_score,
+                darts_thrown, avg_3dart)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+            (
+                _i(session_id),
+                _i(uid),
+                _to_date_str(started),
+                _i(started),
+                _i(duration),
+                str(settings.get("training_mode")) if settings.get("training_mode") else None,
+                _i(settings.get("number_of_rounds")),
+                str(u.get("player_name")) if u.get("player_name") else None,
+                _i(total),
+                _i(darts),
+                _f(avg),
+            ),
+            conn,
+        )
 
         for i, t in enumerate(turns, start=1):
-            _insert("""INSERT INTO practice_turns
-                       (session_id, user_id, turn, score)
-                       VALUES (?, ?, ?, ?)""",
-                    (session_id, uid, i, t.get("total_score") or 0),
-                    conn)
+            _insert(
+                """INSERT INTO practice_turns
+                   (session_id, user_id, turn, score)
+                   VALUES (?, ?, ?, ?)""",
+                (_i(session_id), _i(uid), _i(i), _i(t.get("total_score") or 0)),
+                conn,
+            )
         added += 1
 
     if not _turso_available() and added:
@@ -178,7 +259,7 @@ def main():
                     added = save_session(conn, s)
                     if added:
                         new += added
-                        print(f"  ✅ {to_date_str(s.get('started_at'))} kaydedildi")
+                        print(f"  ✅ {_to_date_str(_parse_dt(s.get('started_at')))} kaydedildi")
                     else:
                         skipped += 1
                 except Exception as e:

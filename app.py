@@ -1,3 +1,6 @@
+"""
+🎯 Dart Analiz — Streamlit Ana Uygulama Dosyası
+"""
 import re
 import streamlit as st
 import sqlite3
@@ -7,27 +10,21 @@ import subprocess
 import sys
 from pathlib import Path
 from datetime import datetime
-
+from singles_tab import render_singles_tab
 import streamlit_authenticator as stauth
-
 import practice_tab
-
-import ui_helpers  # en üste, diğer importların yanına
+import ui_helpers
 
 st.set_page_config(page_title="Dart Analiz", page_icon="🎯", layout="wide")
 
-ui_helpers.inject_mobile_css()  # set_page_config'ten hemen sonra
+ui_helpers.inject_mobile_css()
 
 DB_PATH = "dart.db"
 ENV_FILE = ".env"
 PLAYER = "Efe"
 
-st.set_page_config(page_title="Dart Analiz", page_icon="🎯", layout="wide")
-
 # ============================================================
-# KİMLİK DOĞRULAMA (opsiyonel admin girişi)
-# Varsayılan: visitor — login olmadan herkes verileri görebilir.
-# Admin girişi sidebar'daki expander'dan yapılır.
+# KİMLİK DOĞRULAMA (Admin girişi)
 # ============================================================
 credentials = {
     "usernames": {
@@ -48,12 +45,10 @@ authenticator = stauth.Authenticate(
     cookie_config["expiry_days"],
 )
 
-# Varsayılan rol: visitor
 if "role" not in st.session_state:
     st.session_state["role"] = "visitor"
     st.session_state["name"] = "Ziyaretçi"
     st.session_state["username"] = None
-# ============================================================
 
 # ---------------------------------------------------------------- DİL / LANGUAGE
 LANG = st.sidebar.radio("🌐 Dil / Language", ["TR", "EN"], horizontal=True, key="lang")
@@ -116,6 +111,7 @@ EN = {
     "🏆 En İyi / En Kötü": "🏆 Best / Worst",
     "📋 Maç Listesi": "📋 Match List",
     "🎯 Practice": "🎯 Practice",
+    "🎯 Singles Training": "🎯 Singles Training",
     "Tarih": "Date",
     "Rakip": "Opponent",
     "Sonuç": "Result",
@@ -170,20 +166,6 @@ EN = {
     "Başlangıç": "Start",
     "Atış": "Throw",
     "Kalan": "Remaining",
-    "🎯 PRACTICE ÇEK": "🎯 FETCH PRACTICE",
-    "Practice çekiliyor...": "Fetching practice...",
-    "Practice verisi yok. Sidebar'dan 🎯 PRACTICE ÇEK butonuna bas.": "No practice data. Press the 🎯 FETCH PRACTICE button in the sidebar.",
-    "'{p}' adına practice oturumu bulunamadı.": "No practice sessions found for '{p}'.",
-    "Oturum": "Session",
-    "Ortalama (3-dart)": "Average (3-dart)",
-    "En iyi oturum": "Best session",
-    "Son oturum": "Latest session",
-    "Practice Ortalaması Gelişimi": "Practice Average Progress",
-    "Practice Tur Skoru Dağılımı": "Practice Turn Score Distribution",
-    "Tur skoru": "Turn score",
-    "Tur sayısı": "Rounds",
-    "Toplam": "Total",
-    "Ok": "Darts",
 }
 
 
@@ -274,7 +256,6 @@ def refresh_cache():
 
 
 def is_double_attempt(remaining_before):
-    """Satır bazlı kontrol (fallback için)."""
     if remaining_before is None:
         return False
     try:
@@ -289,12 +270,6 @@ def is_double_attempt(remaining_before):
 
 
 def mark_double_attempts(throws_df):
-    """
-    Leg bazlı double denemesi işaretler.
-    Kural: Leg içinde oyuncu ilk kez kalan puanı ≤ 40 olduğunda (veya 50 bull),
-    o leg'in sonuna kadar TÜM turlar double denemesi sayılır.
-    Tek sayıda kalsa bile (39, 15, 3 vb.) double'a nişan alıp kaçırmış demektir.
-    """
     if throws_df.empty or 'leg_id' not in throws_df.columns:
         df = throws_df.copy()
         df['is_dbl'] = df['remaining_before'].apply(is_double_attempt)
@@ -349,7 +324,6 @@ def adjusted_stats(throws_df):
 # SIDEBAR
 # ============================================================
 with st.sidebar:
-    # --- Admin girişi / çıkışı ---
     if st.session_state.get("role") == "visitor":
         with st.expander(t("🔑 Admin Girişi"), expanded=False):
             name_input, auth_status, username_input = authenticator.login(
@@ -373,7 +347,6 @@ with st.sidebar:
 
     st.divider()
 
-    # --- Token durumu ---
     token_ok, token_status = check_token()
     if not token_ok:
         with st.expander(t("🔑 Token Nasıl Alınır?"), expanded=True):
@@ -382,7 +355,6 @@ with st.sidebar:
     else:
         st.success(t("✅ Token aktif"))
 
-    # --- Sadece admin aksiyonları görsün ---
     if st.session_state.get("role") == "admin":
         st.header(t("⚙️ İşlemler"))
 
@@ -467,7 +439,6 @@ with st.sidebar:
 
         st.divider()
 
-    # Alt bilgi herkese görünsün
     st.caption(f"{t('Oyuncu')}: **{PLAYER}**")
     st.caption(f"{t('Veritabanı')}: `{DB_PATH}`")
 # ============================================================
@@ -550,12 +521,22 @@ ui_helpers.metric_grid([
 
 st.divider()
 
-tab1, tab2, tab3, tab4, tab5, tab6, tab7 = st.tabs([
-    t("📊 Genel Bakış"), t("📈 Gelişim"), t("👥 Rakipler"),
-    t("🎯 Double Trouble"), t("🏆 En İyi / En Kötü"), t("📋 Maç Listesi"), t("🎯 Practice")
+# ============================================================
+# SEKMELER (Practice ilk sırada)
+# ============================================================
+tab1, tab2, tab3, tab4, tab5, tab6, tab7, tab8 = st.tabs([
+    t("🎯 Practice"), t("🎯 Singles Training"), t("📊 Genel Bakış"),
+    t("📈 Gelişim"), t("👥 Rakipler"), t("🎯 Double Trouble"),
+    t("🏆 En İyi / En Kötü"), t("📋 Maç Listesi")
 ])
 
 with tab1:
+    practice_tab.render(PLAYER, DB_PATH, t)
+
+with tab2:
+    render_singles_tab()
+
+with tab3:
     st.subheader(t("Son 10 Maç"))
     recent = efe_complete.head(10)[['date', 'opponent', 'result', 'avg', 'opp_avg']].copy()
     recent['result'] = recent['result'].map(RESULT_TXT)
@@ -568,7 +549,7 @@ with tab1:
                        color_discrete_sequence=['#ff6b35'])
     st.plotly_chart(fig, use_container_width=True)
 
-with tab2:
+with tab4:
     st.subheader(t("Zaman İçinde Ortalama — Ham vs Adjusted"))
     efe_sorted = efe_complete.sort_values('date').copy()
     efe_sorted['label'] = efe_sorted.apply(
@@ -595,7 +576,7 @@ with tab2:
                   color='score_thrown', color_continuous_scale='Oranges')
     st.plotly_chart(fig3, use_container_width=True)
 
-with tab3:
+with tab5:
     st.subheader(t("Rakip Bazlı İstatistik"))
     opp_stats = efe_complete.groupby('opponent').agg(
         Mac=('match_id', 'count'),
@@ -623,7 +604,7 @@ with tab3:
     fig.update_traces(texttemplate='%{text:.2f}', textposition='outside')
     st.plotly_chart(fig, use_container_width=True)
 
-with tab4:
+with tab6:
     st.subheader(t("🎯 Double Deneme Analizi"))
     st.caption(t("Double denemesi: Leg içinde kalan puan ilk kez ≤ 40 olduğunda, o leg bitene kadar tüm turlar double denemesidir."))
     col1, col2, col3 = st.columns(3)
@@ -652,7 +633,7 @@ with tab4:
     fig.update_xaxes(tickangle=-90)
     st.plotly_chart(fig, use_container_width=True)
 
-with tab5:
+with tab7:
     st.subheader(t("🏆 En İyi 5 Maç (Ham Ortalamaya Göre)"))
     best = efe_complete.nlargest(5, 'avg')[RAW_COLS].copy()
     best['result'] = best['result'].map(RESULT_ICON)
@@ -669,7 +650,7 @@ with tab5:
     best_adj.columns = MAIN_COLS
     st.dataframe(best_adj, use_container_width=True, hide_index=True)
 
-with tab6:
+with tab8:
     st.subheader(f"{t('Tüm Maçlar')} ({len(efe_complete)})")
     col1, col2 = st.columns(2)
     with col1:
@@ -736,6 +717,3 @@ with tab6:
                         ['player_name', 'turn', 'remaining_before', 'score_thrown', 'remaining_after']].copy()
                     p_display.columns = [t('Oyuncu'), t('Tur'), t('Başlangıç'), t('Atış'), t('Kalan')]
                     st.dataframe(p_display, use_container_width=True, hide_index=True)
-
-with tab7:
-    practice_tab.render(PLAYER, DB_PATH, t)

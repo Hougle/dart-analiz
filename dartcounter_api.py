@@ -18,20 +18,17 @@ API_BASE = "https://api.dartcounter.net"
 
 def _get_turso_credentials():
     """Turso URL ve token'ı Streamlit secrets veya .env'den alır."""
-    # 1) Streamlit Cloud (st.secrets)
     try:
         import streamlit as st
         url = st.secrets.get("TURSO_DATABASE_URL")
         token = st.secrets.get("TURSO_AUTH_TOKEN")
         if url and token:
-            # libsql:// -> https://
             if url.startswith("libsql://"):
                 url = url.replace("libsql://", "https://", 1)
             return url, token
     except Exception:
         pass
 
-    # 2) Lokal .env
     env_path = Path(ENV_FILE)
     if env_path.exists():
         url = token = None
@@ -49,11 +46,51 @@ def _get_turso_credentials():
     return None, None
 
 
+def _to_turso_arg(a):
+    """
+    Python değerini Turso arg formatına çevirir.
+    - Integer değerlerin value kısımları string olmalıdır.
+    - Float değerlerin value kısımları sayı (float) olmalıdır.
+    """
+    if a is None:
+        return {"type": "null"}
+
+    if isinstance(a, bool):
+        return {"type": "integer", "value": str(int(a))}
+
+    try:
+        import numpy as np
+        if isinstance(a, np.bool_):
+            return {"type": "integer", "value": str(int(a))}
+        if isinstance(a, np.integer):
+            return {"type": "integer", "value": str(int(a))}
+        if isinstance(a, np.floating):
+            return {"type": "float", "value": float(a)}
+    except ImportError:
+        pass
+
+    if isinstance(a, int):
+        return {"type": "integer", "value": str(a)}
+    if isinstance(a, float):
+        return {"type": "float", "value": a}
+
+    if isinstance(a, str):
+        s = a.strip()
+        if not s:
+            return {"type": "null"}
+        try:
+            if "." not in s and "e" not in s.lower():
+                int(s)
+                return {"type": "integer", "value": s}
+            return {"type": "float", "value": float(s)}
+        except ValueError:
+            return {"type": "text", "value": s}
+
+    return {"type": "text", "value": str(a)}
+
+
 def turso_execute(sql, args=None):
-    """
-    Turso HTTP API'sine tek bir SQL komutu gönderir.
-    Sonuç: dict (cols, rows, affected_row_count, last_insert_rowid)
-    """
+    """Turso HTTP API'sine tek SQL komutu gönderir."""
     url, token = _get_turso_credentials()
     if not url or not token:
         raise RuntimeError("Turso credentials not found")
@@ -64,32 +101,19 @@ def turso_execute(sql, args=None):
         "Content-Type": "application/json",
     }
 
-    # Positional args -> Turso format
-    turso_args = []
-    if args:
-        for a in args:
-            if a is None:
-                turso_args.append({"type": "null"})
-            elif isinstance(a, bool):
-                turso_args.append({"type": "integer", "value": str(int(a))})
-            elif isinstance(a, int):
-                turso_args.append({"type": "integer", "value": str(a)})
-            elif isinstance(a, float):
-                turso_args.append({"type": "float", "value": str(a)})
-            else:
-                turso_args.append({"type": "text", "value": str(a)})
+    turso_args = [_to_turso_arg(a) for a in (args or [])]
 
     body = {
         "requests": [
-            {
-                "type": "execute",
-                "stmt": {"sql": sql, "args": turso_args},
-            },
+            {"type": "execute", "stmt": {"sql": sql, "args": turso_args}},
             {"type": "close"},
         ]
     }
 
     r = requests.post(endpoint, headers=headers, json=body, timeout=30)
+    if r.status_code != 200:
+        print(f"[TURSO HATA {r.status_code}] SQL: {sql[:200]}")
+        print(f"[TURSO HATA] Body: {r.text[:1000]}")
     r.raise_for_status()
     data = r.json()
 
@@ -104,10 +128,7 @@ def turso_execute(sql, args=None):
 
 
 def turso_query(sql, args=None):
-    """
-    SELECT sorgusu çalıştırır, pandas DataFrame'e uygun liste döndürür.
-    Dönüş: (columns, rows)
-    """
+    """SELECT sorgusu çalıştırır, (columns, rows) döndürür."""
     result = turso_execute(sql, args)
     cols = [c["name"] for c in result.get("cols", [])]
     rows = []
@@ -127,10 +148,7 @@ def turso_query(sql, args=None):
 
 
 def turso_execute_script(script):
-    """
-    Birden fazla SQL komutunu (CREATE TABLE IF NOT EXISTS) sırayla çalıştırır.
-    """
-    # executescript içindeki komutları ayır
+    """Birden fazla SQL komutunu sırayla çalıştırır."""
     statements = [s.strip() for s in script.split(";") if s.strip()]
     for stmt in statements:
         if stmt:
@@ -143,10 +161,17 @@ def _turso_available():
 
 
 def get_db_connection():
-    """
-    Eski API uyumluluğu için. Artık kullanılmıyor ama import'ları bozmamak için bırakıldı.
-    """
+    """Eski API uyumluluğu için."""
     return sqlite3.connect(DB_PATH)
+
+
+def to_date_str(timestamp):
+    """Timestamp değerini okunabilir tarih formatına çevirir."""
+    if isinstance(timestamp, (int, float)):
+        # Milisaniye cinsindense saniyeye çevir
+        ts = timestamp / 1000.0 if timestamp > 1e11 else timestamp
+        return datetime.fromtimestamp(ts).strftime("%Y-%m-%d %H:%M")
+    return str(timestamp or "")
 
 
 # ============================================================================
@@ -154,7 +179,6 @@ def get_db_connection():
 # ============================================================================
 
 def load_token():
-    # 1) Streamlit Cloud (st.secrets) — varsa öncelikli
     try:
         import streamlit as st
         if "DARTCOUNTER_TOKEN" in st.secrets:
@@ -164,7 +188,6 @@ def load_token():
     except Exception:
         pass
 
-    # 2) Lokal .env dosyası
     env_path = Path(ENV_FILE)
     if not env_path.exists():
         raise FileNotFoundError(
@@ -257,51 +280,29 @@ def setup_database(conn=None):
         conn = sqlite3.connect(DB_PATH)
         conn.executescript("""
         CREATE TABLE IF NOT EXISTS matches (
-            match_id TEXT PRIMARY KEY,
-            date TEXT,
-            game_type TEXT,
-            player1_name TEXT,
-            player2_name TEXT,
-            p1_user_id INTEGER,
-            p2_user_id INTEGER,
-            p1_result TEXT,
-            p2_result TEXT,
-            final_score_p1 INTEGER,
-            final_score_p2 INTEGER,
-            p1_avg_3dart REAL,
-            p2_avg_3dart REAL,
-            p1_first9_avg REAL,
-            p2_first9_avg REAL,
-            p1_darts INTEGER,
-            p2_darts INTEGER,
-            p1_highest_score INTEGER,
-            p2_highest_score INTEGER,
-            p1_highest_finish INTEGER,
-            p2_highest_finish INTEGER,
-            p1_checkout_rate REAL,
-            p2_checkout_rate REAL,
-            p1_180s INTEGER DEFAULT 0,
-            p2_180s INTEGER DEFAULT 0,
+            match_id TEXT PRIMARY KEY, date TEXT, game_type TEXT,
+            player1_name TEXT, player2_name TEXT,
+            p1_user_id INTEGER, p2_user_id INTEGER,
+            p1_result TEXT, p2_result TEXT,
+            final_score_p1 INTEGER, final_score_p2 INTEGER,
+            p1_avg_3dart REAL, p2_avg_3dart REAL,
+            p1_first9_avg REAL, p2_first9_avg REAL,
+            p1_darts INTEGER, p2_darts INTEGER,
+            p1_highest_score INTEGER, p2_highest_score INTEGER,
+            p1_highest_finish INTEGER, p2_highest_finish INTEGER,
+            p1_checkout_rate REAL, p2_checkout_rate REAL,
+            p1_180s INTEGER DEFAULT 0, p2_180s INTEGER DEFAULT 0,
             source TEXT
         );
         CREATE TABLE IF NOT EXISTS legs (
-            leg_id TEXT PRIMARY KEY,
-            match_id TEXT,
-            leg_no INTEGER,
-            winner_name TEXT,
-            winner_match_user_id TEXT
+            leg_id TEXT PRIMARY KEY, match_id TEXT, leg_no INTEGER,
+            winner_name TEXT, winner_match_user_id TEXT
         );
         CREATE TABLE IF NOT EXISTS throws (
-            throw_id TEXT PRIMARY KEY,
-            leg_id TEXT,
-            match_id TEXT,
-            turn INTEGER,
-            player_name TEXT,
-            player_user_id INTEGER,
-            remaining_before INTEGER,
-            score_thrown INTEGER,
-            remaining_after INTEGER,
-            darts_thrown INTEGER
+            throw_id TEXT PRIMARY KEY, leg_id TEXT, match_id TEXT,
+            turn INTEGER, player_name TEXT, player_user_id INTEGER,
+            remaining_before INTEGER, score_thrown INTEGER,
+            remaining_after INTEGER, darts_thrown INTEGER
         );
         """)
         conn.commit()
@@ -318,6 +319,20 @@ def match_exists(conn, match_id):
     return c.fetchone() is not None
 
 
+def safe_float(v):
+    try:
+        return float(v) if v is not None else None
+    except (ValueError, TypeError):
+        return None
+
+
+def safe_int(v):
+    try:
+        return int(float(v)) if v is not None else None
+    except (ValueError, TypeError):
+        return None
+
+
 def save_match(conn, data):
     match_id = data["id"]
 
@@ -326,10 +341,7 @@ def save_match(conn, data):
         return False
 
     started_at = data.get("started_at")
-    if isinstance(started_at, (int, float)):
-        date_str = datetime.fromtimestamp(started_at).strftime("%Y-%m-%d %H:%M")
-    else:
-        date_str = str(started_at or "")
+    date_str = to_date_str(started_at)
 
     settings = data.get("settings", {})
     start_score = settings.get("start_score", 501)
@@ -344,24 +356,12 @@ def save_match(conn, data):
     p1, p2 = users[0], users[1]
     p1_name = p1.get("player_name", f"P{p1.get('user_id', '1')}")
     p2_name = p2.get("player_name", f"P{p2.get('user_id', '2')}")
-    p1_uid = p1.get("user_id")
-    p2_uid = p2.get("user_id")
+    p1_uid = safe_int(p1.get("user_id"))
+    p2_uid = safe_int(p2.get("user_id"))
     p1_result = p1.get("result", "")
     p2_result = p2.get("result", "")
-    p1_score = p1.get("checked_legs") or 0
-    p2_score = p2.get("checked_legs") or 0
-
-    def safe_float(v):
-        try:
-            return float(v) if v is not None else None
-        except (ValueError, TypeError):
-            return None
-
-    def safe_int(v):
-        try:
-            return int(v) if v is not None else None
-        except (ValueError, TypeError):
-            return None
+    p1_score = safe_int(p1.get("checked_legs")) or 0
+    p2_score = safe_int(p2.get("checked_legs")) or 0
 
     p1_180s = 0
     p2_180s = 0
@@ -379,21 +379,24 @@ def save_match(conn, data):
                   p1_180s, p2_180s, source)
                  VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"""
 
-    args = (match_id, date_str, game_type, p1_name, p2_name,
-            p1_uid, p2_uid, p1_result, p2_result, p1_score, p2_score,
-            safe_float(p1.get("three_dart_average")),
-            safe_float(p2.get("three_dart_average")),
-            safe_float(p1.get("first_nine_average")),
-            safe_float(p2.get("first_nine_average")),
-            safe_int(p1.get("darts_thrown")),
-            safe_int(p2.get("darts_thrown")),
-            safe_int(p1.get("highest_score")),
-            safe_int(p2.get("highest_score")),
-            safe_int(p1.get("highest_finish")),
-            safe_int(p2.get("highest_finish")),
-            safe_float(p1.get("checkout_rate")),
-            safe_float(p2.get("checkout_rate")),
-            p1_180s, p2_180s, "api")
+    args = (
+        match_id, date_str, game_type, p1_name, p2_name,
+        p1_uid, p2_uid, p1_result, p2_result,
+        p1_score, p2_score,
+        safe_float(p1.get("three_dart_average")),
+        safe_float(p2.get("three_dart_average")),
+        safe_float(p1.get("first_nine_average")),
+        safe_float(p2.get("first_nine_average")),
+        safe_int(p1.get("darts_thrown")),
+        safe_int(p2.get("darts_thrown")),
+        safe_int(p1.get("highest_score")),
+        safe_int(p2.get("highest_score")),
+        safe_int(p1.get("highest_finish")),
+        safe_int(p2.get("highest_finish")),
+        safe_float(p1.get("checkout_rate")),
+        safe_float(p2.get("checkout_rate")),
+        p1_180s, p2_180s, "api",
+    )
 
     if _turso_available():
         turso_execute(insert_sql, list(args))
@@ -459,7 +462,7 @@ def save_match(conn, data):
                 throw_args = [
                     turn.get("turn_id", f"{leg_id}_{uid}_{turn_no}"),
                     leg_id, match_id, turn_no, p_name, uid,
-                    remaining_before, score, remaining_after, darts
+                    remaining_before, score, remaining_after, darts,
                 ]
 
                 if _turso_available():
@@ -503,7 +506,8 @@ def main():
         if not ids_file.exists():
             print("Kullanım: python3 dartcounter_api.py <URL_veya_ID>")
             print("Veya 'match_ids.txt' dosyasına her satıra bir URL/ID yaz.")
-            conn.close()
+            if conn is not None:
+                conn.close()
             return
         lines = [l.strip() for l in ids_file.read_text().splitlines()
                  if l.strip() and not l.startswith("#")]
@@ -512,7 +516,8 @@ def main():
             import_match(line, conn, token)
             print()
 
-    conn.close()
+    if conn is not None:
+        conn.close()
     print("✅ Bitti.")
 
 

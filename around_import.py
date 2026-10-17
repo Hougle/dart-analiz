@@ -7,7 +7,6 @@ Kullanım:
 import sys
 from datetime import datetime
 from pathlib import Path
-
 import requests
 
 sys.path.insert(0, str(Path(__file__).parent))
@@ -15,7 +14,7 @@ from dartcounter_api import (
     load_token, DB_PATH, API_BASE,
     turso_execute, turso_query, turso_execute_script, _turso_available,
 )
-from practice_import import to_date_str
+from dartcounter_api import to_date_str
 
 
 ATC_SCHEMA = """
