@@ -63,7 +63,6 @@ def calculate_score_metrics(df_turns):
     std_dev = df_turns["score"].std()
 
     # 2. Bounce-back Rate (Kotu atis sonrasi toparlanma)
-    # Kotu atis: 40 ve alti puan
     df_turns["prev_score"] = df_turns["score"].shift(1)
     bad_turns = df_turns[df_turns["prev_score"] <= 40]
     
