@@ -4,6 +4,9 @@ Practice Modülü ve Alt Sekmeleri (Score Training, Around the Clock, Singles Tr
 import streamlit as st
 import subprocess
 import sys
+import pandas as pd
+import sqlite3
+import plotly.express as px
 from singles_tab import render_singles_tab
 
 
@@ -25,6 +28,17 @@ def sidebar_button(token_ok, t_func):
                     st.error(f"Hata: {e}")
 
 
+def load_practice_data(db_path):
+    try:
+        conn = sqlite3.connect(db_path)
+        sessions = pd.read_sql("SELECT * FROM practice_sessions", conn)
+        throws = pd.read_sql("SELECT * FROM practice_throws", conn)
+        conn.close()
+        return sessions, throws
+    except Exception:
+        return pd.DataFrame(), pd.DataFrame()
+
+
 def render(player_name, db_path, t_func):
     st.subheader(t_func("🎯 Practice Modülleri"))
     
@@ -35,11 +49,19 @@ def render(player_name, db_path, t_func):
         t_func("🎯 Singles Training")
     ])
     
+    sessions_df, throws_df = load_practice_data(db_path)
+    
     with sub1:
-        st.info("Score Training verileri ve grafikleri yakında burada yer alacak.")
-        
+        st.subheader("🎯 Score Training Analizi")
+        if sessions_df.empty:
+            st.info("Henüz kaydedilmiş Score Training oturumu bulunmuyor.")
+        else:
+            # Score training özetleri ve grafikleri
+            st.dataframe(sessions_df, use_container_width=True)
+            
     with sub2:
-        st.info("Around the Clock verileri ve grafikleri yakında burada yer alacak.")
+        st.subheader("🔄 Around the Clock Analizi")
+        st.info("Around the Clock modülü için veri tabanı entegrasyonu hazırlanıyor.")
         
     with sub3:
         render_singles_tab()
