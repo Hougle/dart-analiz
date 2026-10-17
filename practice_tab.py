@@ -32,9 +32,9 @@ def sidebar_button(token_ok, t_func):
 @st.cache_data(ttl=60)
 def load_all_practice_data():
     if _turso_available():
-        _, p_sessions = turso_query("SELECT * FROM practice_sessions ORDER BY date ASC")
+        _, p_sessions = turso_query("SELECT * FROM practice_sessions ORDER BY started_at ASC")
         _, p_turns = turso_query("SELECT * FROM practice_turns")
-        _, a_sessions = turso_query("SELECT * FROM around_sessions ORDER BY date ASC")
+        _, a_sessions = turso_query("SELECT * FROM around_sessions ORDER BY started_at ASC")
         _, a_targets = turso_query("SELECT * FROM around_targets")
 
         df_p_sessions = pd.DataFrame(p_sessions) if p_sessions else pd.DataFrame()
@@ -43,9 +43,9 @@ def load_all_practice_data():
         df_a_targets = pd.DataFrame(a_targets) if a_targets else pd.DataFrame()
     else:
         conn = sqlite3.connect(DB_PATH)
-        df_p_sessions = pd.read_sql("SELECT * FROM practice_sessions ORDER BY date ASC", conn)
+        df_p_sessions = pd.read_sql("SELECT * FROM practice_sessions ORDER BY started_at ASC", conn)
         df_p_turns = pd.read_sql("SELECT * FROM practice_turns", conn)
-        df_a_sessions = pd.read_sql("SELECT * FROM around_sessions ORDER BY date ASC", conn)
+        df_a_sessions = pd.read_sql("SELECT * FROM around_sessions ORDER BY started_at ASC", conn)
         df_a_targets = pd.read_sql("SELECT * FROM around_targets", conn)
         conn.close()
 
@@ -74,13 +74,13 @@ def render(player_name, db_path, t_func):
         else:
             # Metrik Kartları
             total_sessions = len(df_p_sessions)
+            avg_3dart = df_p_sessions["avg_3dart"].mean() if "avg_3dart" in df_p_sessions.columns else 0
             total_score = df_p_sessions["total_score"].sum() if "total_score" in df_p_sessions.columns else 0
-            avg_score = df_p_sessions["total_score"].mean() if "total_score" in df_p_sessions.columns else 0
             total_darts = df_p_sessions["darts_thrown"].sum() if "darts_thrown" in df_p_sessions.columns else 0
             
             c1, c2, c3, c4 = st.columns(4)
             c1.metric("Toplam Oturum", total_sessions)
-            c2.metric("Ortalama Skor", f"{avg_score:.1f}")
+            c2.metric("Ortalama (3 Ok)", f"{avg_3dart:.2f}")
             c3.metric("Toplam Skor", f"{total_score:,}")
             c4.metric("Atılan Toplam Ok", f"{total_darts:,}")
 
@@ -91,38 +91,25 @@ def render(player_name, db_path, t_func):
             if "started_at" in df_chart.columns and df_chart["started_at"].notna().any():
                 df_chart["datetime"] = pd.to_datetime(df_chart["started_at"], unit="s", utc=True).dt.tz_convert("Europe/Istanbul")
                 df_chart["Tarih_Format"] = df_chart["datetime"].dt.strftime("%d.%m.%Y %H:%M")
-            elif "date" in df_chart.columns:
-                df_chart["Tarih_Format"] = df_chart["date"].astype(str)
             else:
-                df_chart["Tarih_Format"] = df_chart.index.astype(str)
+                df_chart["Tarih_Format"] = df_chart["date"].astype(str)
 
             fig_score = px.line(
                 df_chart,
                 x="Tarih_Format",
-                y="total_score" if "total_score" in df_chart.columns else df_chart.columns[0],
+                y="avg_3dart",
                 markers=True,
-                title="Zaman İçinde Oturum Skorları",
-                labels={"Tarih_Format": "Tarih / Saat", "total_score": "Toplam Skor"}
+                title="Zaman İçinde 3-Ok Ortalaması Gelişimi",
+                labels={"Tarih_Format": "Tarih / Saat", "avg_3dart": "3-Ok Ortalaması"}
             )
             fig_score.update_traces(line_color="#ff6b35", marker=dict(size=8))
             fig_score.update_layout(template="plotly_dark", margin=dict(t=40, b=20, l=20, r=20))
             st.plotly_chart(fig_score, use_container_width=True)
 
-            # Atış Puan Dağılımı (Tur verisi varsa)
-            if not df_p_turns.empty and "score" in df_p_turns.columns:
-                fig_hist = px.histogram(
-                    df_p_turns,
-                    x="score",
-                    nbins=20,
-                    title="Score Training Atış Puanı Dağılımı",
-                    labels={"score": "Puan", "count": "Frekans"},
-                    color_discrete_sequence=["#4ecdc4"]
-                )
-                fig_hist.update_layout(template="plotly_dark", margin=dict(t=40, b=20, l=20, r=20))
-                st.plotly_chart(fig_hist, use_container_width=True)
-
             with st.expander("📋 Detaylı Score Training Geçmişi"):
-                st.dataframe(df_p_sessions, use_container_width=True, hide_index=True)
+                display_p = df_p_sessions[["date", "training_mode", "rounds", "total_score", "darts_thrown", "avg_3dart"]].copy()
+                display_p.columns = ["Tarih", "Mod", "Tur", "Toplam Skor", "Ok Sayısı", "3-Ok Ort."]
+                st.dataframe(display_p, use_container_width=True, hide_index=True)
 
     # ==========================================
     # 2. AROUND THE CLOCK SUB-TAB
@@ -133,41 +120,40 @@ def render(player_name, db_path, t_func):
             st.info("Henüz kaydedilmiş Around the Clock oturumu bulunmuyor.")
         else:
             total_a = len(df_a_sessions)
-            avg_duration = df_a_sessions["duration_sec"].mean() if "duration_sec" in df_a_sessions.columns else 0
+            avg_hit_rate = df_a_sessions["hit_rate"].mean() if "hit_rate" in df_a_sessions.columns else 0
             total_a_darts = df_a_sessions["darts_thrown"].sum() if "darts_thrown" in df_a_sessions.columns else 0
 
             ac1, ac2, ac3 = st.columns(3)
             ac1.metric("Toplam Oturum", total_a)
-            ac2.metric("Ortalama Süre", f"{avg_duration:.0f} sn")
+            ac2.metric("Ortalama İsabet Oranı", f"%{avg_hit_rate:.1f}")
             ac3.metric("Atılan Toplam Ok", f"{total_a_darts:,}")
 
             st.markdown("---")
 
-            # ATC Performans Grafiği (Atılan ok sayısı / zaman)
+            # ATC İsabet Oranı Grafiği
             df_a_chart = df_a_sessions.copy()
             if "started_at" in df_a_chart.columns and df_a_chart["started_at"].notna().any():
                 df_a_chart["datetime"] = pd.to_datetime(df_a_chart["started_at"], unit="s", utc=True).dt.tz_convert("Europe/Istanbul")
                 df_a_chart["Tarih_Format"] = df_a_chart["datetime"].dt.strftime("%d.%m.%Y %H:%M")
-            elif "date" in df_a_chart.columns:
-                df_a_chart["Tarih_Format"] = df_a_chart["date"].astype(str)
             else:
-                df_a_chart["Tarih_Format"] = df_a_chart.index.astype(str)
+                df_a_chart["Tarih_Format"] = df_a_chart["date"].astype(str)
 
-            y_col = "darts_thrown" if "darts_thrown" in df_a_chart.columns else df_a_chart.columns[0]
             fig_ac = px.line(
                 df_a_chart,
                 x="Tarih_Format",
-                y=y_col,
+                y="hit_rate",
                 markers=True,
-                title="ATC Oturumlarında Atılan Ok Sayısı (Az Olması Daha İyi)",
-                labels={"Tarih_Format": "Tarih / Saat", y_col: "Ok Sayısı"}
+                title="Zaman İçinde ATC İsabet Oranı (%)",
+                labels={"Tarih_Format": "Tarih / Saat", "hit_rate": "İsabet Oranı (%)"}
             )
             fig_ac.update_traces(line_color="#4ecdc4", marker=dict(size=8))
             fig_ac.update_layout(template="plotly_dark", margin=dict(t=40, b=20, l=20, r=20))
             st.plotly_chart(fig_ac, use_container_width=True)
 
             with st.expander("📋 Detaylı Around the Clock Geçmişi"):
-                st.dataframe(df_a_sessions, use_container_width=True, hide_index=True)
+                display_a = df_a_sessions[["date", "mode", "total_score", "darts_thrown", "darts_hit", "hit_rate"]].copy()
+                display_a.columns = ["Tarih", "Mod", "Skor", "Ok Sayısı", "İsabet", "İsabet Oranı (%)"]
+                st.dataframe(display_a, use_container_width=True, hide_index=True)
 
     # ==========================================
     # 3. SINGLES TRAINING SUB-TAB
