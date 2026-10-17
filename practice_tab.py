@@ -30,20 +30,26 @@ def sidebar_button(token_ok, t_func):
 
 
 @st.cache_data(ttl=60)
-def load_practice_data():
+def load_all_practice_data():
     if _turso_available():
-        _, sessions = turso_query("SELECT * FROM practice_sessions ORDER BY date DESC")
-        _, turns = turso_query("SELECT * FROM practice_turns")
-        
-        df_sessions = pd.DataFrame(sessions) if sessions else pd.DataFrame()
-        df_turns = pd.DataFrame(turns) if turns else pd.DataFrame()
-        return df_sessions, df_turns
+        _, p_sessions = turso_query("SELECT * FROM practice_sessions ORDER BY date ASC")
+        _, p_turns = turso_query("SELECT * FROM practice_turns")
+        _, a_sessions = turso_query("SELECT * FROM around_sessions ORDER BY date ASC")
+        _, a_targets = turso_query("SELECT * FROM around_targets")
+
+        df_p_sessions = pd.DataFrame(p_sessions) if p_sessions else pd.DataFrame()
+        df_p_turns = pd.DataFrame(p_turns) if p_turns else pd.DataFrame()
+        df_a_sessions = pd.DataFrame(a_sessions) if a_sessions else pd.DataFrame()
+        df_a_targets = pd.DataFrame(a_targets) if a_targets else pd.DataFrame()
     else:
         conn = sqlite3.connect(DB_PATH)
-        df_sessions = pd.read_sql("SELECT * FROM practice_sessions ORDER BY date DESC", conn)
-        df_turns = pd.read_sql("SELECT * FROM practice_turns", conn)
+        df_p_sessions = pd.read_sql("SELECT * FROM practice_sessions ORDER BY date ASC", conn)
+        df_p_turns = pd.read_sql("SELECT * FROM practice_turns", conn)
+        df_a_sessions = pd.read_sql("SELECT * FROM around_sessions ORDER BY date ASC", conn)
+        df_a_targets = pd.read_sql("SELECT * FROM around_targets", conn)
         conn.close()
-        return df_sessions, df_turns
+
+    return df_p_sessions, df_p_turns, df_a_sessions, df_a_targets
 
 
 def render(player_name, db_path, t_func):
@@ -56,29 +62,115 @@ def render(player_name, db_path, t_func):
         t_func("🎯 Singles Training")
     ])
     
-    sessions_df, throws_df = load_practice_data()
+    df_p_sessions, df_p_turns, df_a_sessions, df_a_targets = load_all_practice_data()
     
+    # ==========================================
+    # 1. SCORE TRAINING SUB-TAB
+    # ==========================================
     with sub1:
         st.subheader("🎯 Score Training Analizi")
-        if sessions_df.empty:
+        if df_p_sessions.empty:
             st.info("Henüz kaydedilmiş Score Training oturumu bulunmuyor.")
         else:
-            # Özet metrikler
-            total_sessions = len(sessions_df)
-            avg_score = sessions_df["total_score"].mean() if "total_score" in sessions_df.columns else 0
+            # Metrik Kartları
+            total_sessions = len(df_p_sessions)
+            total_score = df_p_sessions["total_score"].sum() if "total_score" in df_p_sessions.columns else 0
+            avg_score = df_p_sessions["total_score"].mean() if "total_score" in df_p_sessions.columns else 0
+            total_darts = df_p_sessions["darts_thrown"].sum() if "darts_thrown" in df_p_sessions.columns else 0
             
-            c1, c2 = st.columns(2)
+            c1, c2, c3, c4 = st.columns(4)
             c1.metric("Toplam Oturum", total_sessions)
             c2.metric("Ortalama Skor", f"{avg_score:.1f}")
-            
+            c3.metric("Toplam Skor", f"{total_score:,}")
+            c4.metric("Atılan Toplam Ok", f"{total_darts:,}")
+
             st.markdown("---")
-            
-            # Oturum Listesi Tablosu
-            st.dataframe(sessions_df, use_container_width=True, hide_index=True)
-            
+
+            # Skor Gelişim Grafiği
+            df_chart = df_p_sessions.copy()
+            if "started_at" in df_chart.columns and df_chart["started_at"].notna().any():
+                df_chart["datetime"] = pd.to_datetime(df_chart["started_at"], unit="s", utc=True).dt.tz_convert("Europe/Istanbul")
+                df_chart["Tarih_Format"] = df_chart["datetime"].dt.strftime("%d.%m.%Y %H:%M")
+            elif "date" in df_chart.columns:
+                df_chart["Tarih_Format"] = df_chart["date"].astype(str)
+            else:
+                df_chart["Tarih_Format"] = df_chart.index.astype(str)
+
+            fig_score = px.line(
+                df_chart,
+                x="Tarih_Format",
+                y="total_score" if "total_score" in df_chart.columns else df_chart.columns[0],
+                markers=True,
+                title="Zaman İçinde Oturum Skorları",
+                labels={"Tarih_Format": "Tarih / Saat", "total_score": "Toplam Skor"}
+            )
+            fig_score.update_traces(line_color="#ff6b35", marker=dict(size=8))
+            fig_score.update_layout(template="plotly_dark", margin=dict(t=40, b=20, l=20, r=20))
+            st.plotly_chart(fig_score, use_container_width=True)
+
+            # Atış Puan Dağılımı (Tur verisi varsa)
+            if not df_p_turns.empty and "score" in df_p_turns.columns:
+                fig_hist = px.histogram(
+                    df_p_turns,
+                    x="score",
+                    nbins=20,
+                    title="Score Training Atış Puanı Dağılımı",
+                    labels={"score": "Puan", "count": "Frekans"},
+                    color_discrete_sequence=["#4ecdc4"]
+                )
+                fig_hist.update_layout(template="plotly_dark", margin=dict(t=40, b=20, l=20, r=20))
+                st.plotly_chart(fig_hist, use_container_width=True)
+
+            with st.expander("📋 Detaylı Score Training Geçmişi"):
+                st.dataframe(df_p_sessions, use_container_width=True, hide_index=True)
+
+    # ==========================================
+    # 2. AROUND THE CLOCK SUB-TAB
+    # ==========================================
     with sub2:
         st.subheader("🔄 Around the Clock Analizi")
-        st.info("Around the Clock modülü için veri tabanı entegrasyonu hazırlanıyor.")
-        
+        if df_a_sessions.empty:
+            st.info("Henüz kaydedilmiş Around the Clock oturumu bulunmuyor.")
+        else:
+            total_a = len(df_a_sessions)
+            avg_duration = df_a_sessions["duration_sec"].mean() if "duration_sec" in df_a_sessions.columns else 0
+            total_a_darts = df_a_sessions["darts_thrown"].sum() if "darts_thrown" in df_a_sessions.columns else 0
+
+            ac1, ac2, ac3 = st.columns(3)
+            ac1.metric("Toplam Oturum", total_a)
+            ac2.metric("Ortalama Süre", f"{avg_duration:.0f} sn")
+            ac3.metric("Atılan Toplam Ok", f"{total_a_darts:,}")
+
+            st.markdown("---")
+
+            # ATC Performans Grafiği (Atılan ok sayısı / zaman)
+            df_a_chart = df_a_sessions.copy()
+            if "started_at" in df_a_chart.columns and df_a_chart["started_at"].notna().any():
+                df_a_chart["datetime"] = pd.to_datetime(df_a_chart["started_at"], unit="s", utc=True).dt.tz_convert("Europe/Istanbul")
+                df_a_chart["Tarih_Format"] = df_a_chart["datetime"].dt.strftime("%d.%m.%Y %H:%M")
+            elif "date" in df_a_chart.columns:
+                df_a_chart["Tarih_Format"] = df_a_chart["date"].astype(str)
+            else:
+                df_a_chart["Tarih_Format"] = df_a_chart.index.astype(str)
+
+            y_col = "darts_thrown" if "darts_thrown" in df_a_chart.columns else df_a_chart.columns[0]
+            fig_ac = px.line(
+                df_a_chart,
+                x="Tarih_Format",
+                y=y_col,
+                markers=True,
+                title="ATC Oturumlarında Atılan Ok Sayısı (Az Olması Daha İyi)",
+                labels={"Tarih_Format": "Tarih / Saat", y_col: "Ok Sayısı"}
+            )
+            fig_ac.update_traces(line_color="#4ecdc4", marker=dict(size=8))
+            fig_ac.update_layout(template="plotly_dark", margin=dict(t=40, b=20, l=20, r=20))
+            st.plotly_chart(fig_ac, use_container_width=True)
+
+            with st.expander("📋 Detaylı Around the Clock Geçmişi"):
+                st.dataframe(df_a_sessions, use_container_width=True, hide_index=True)
+
+    # ==========================================
+    # 3. SINGLES TRAINING SUB-TAB
+    # ==========================================
     with sub3:
         render_singles_tab()
