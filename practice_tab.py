@@ -1,6 +1,7 @@
 """
-Practice Modülü ve Alt Sekmeleri (Score Training, Around the Clock, Singles Training)
-Görsel hataları, Y-eksen ölçekleri ve hover formatları düzeltilmiş sürüm.
+Practice Modülü - Analist & Sporcu Odaklı Performans Analizörü
+Score Training: Istikrar, Yorulma Egrisi (Round Decay) ve Bounce-back Analizi
+Around the Clock: Bottleneck (Zayif Halka) & Segment Analizi
 """
 import streamlit as st
 import subprocess
@@ -53,6 +54,42 @@ def load_all_practice_data():
     return df_p_sessions, df_p_turns, df_a_sessions, df_a_targets
 
 
+def calculate_score_metrics(df_turns):
+    """Sporcu & Analist Odaklı Metrik Hesaplamaları"""
+    if df_turns.empty or "score" not in df_turns.columns:
+        return None, None, None
+
+    # 1. Istikrar (Standart Sapma)
+    std_dev = df_turns["score"].std()
+
+    # 2. Bounce-back Rate (Kotu atis sonrasi toparlanma)
+    # Kotu atis: 40 ve alti puan
+    df_turns["prev_score"] = df_turns["score"].shift(1)
+    bad_turns = df_turns[df_turns["prev_score"] <= 40]
+    
+    if len(bad_turns) > 0:
+        avg_score = df_turns["score"].mean()
+        recovered_turns = bad_turns[bad_turns["score"] >= avg_score]
+        bounce_back_rate = (len(recovered_turns) / len(bad_turns)) * 100
+    else:
+        bounce_back_rate = 100.0
+
+    # 3. Yorulma Egrisi (Round Decay Analysis)
+    if "turn_index" in df_turns.columns or "round" in df_turns.columns:
+        turn_col = "turn_index" if "turn_index" in df_turns.columns else "round"
+        max_turn = df_turns[turn_col].max()
+        if max_turn >= 6:
+            first_phase = df_turns[df_turns[turn_col] <= 3]["score"].mean()
+            last_phase = df_turns[df_turns[turn_col] >= (max_turn - 2)]["score"].mean()
+            decay_pct = ((last_phase - first_phase) / first_phase) * 100 if first_phase > 0 else 0
+        else:
+            decay_pct = 0.0
+    else:
+        decay_pct = 0.0
+
+    return std_dev, bounce_back_rate, decay_pct
+
+
 def render(player_name, db_path, t_func):
     st.subheader(t_func("🎯 Practice Modülleri"))
     
@@ -65,55 +102,61 @@ def render(player_name, db_path, t_func):
     df_p_sessions, df_p_turns, df_a_sessions, df_a_targets = load_all_practice_data()
     
     # ==========================================
-    # 1. SCORE TRAINING SEKMESİ
+    # 1. SCORE TRAINING SEKMESİ (PERFORMANCE ENGINE)
     # ==========================================
     with sub1:
-        st.subheader("🎯 Score Training Detaylı Analiz")
+        st.subheader("🎯 Score Training - Performans & Ritim Analizi")
         if df_p_sessions.empty:
             st.info("Henüz kaydedilmiş Score Training oturumu bulunmuyor.")
         else:
             df = df_p_sessions.copy()
             if "started_at" in df.columns and df["started_at"].notna().any():
                 df["datetime"] = pd.to_datetime(df["started_at"], unit="s", utc=True).dt.tz_convert("Europe/Istanbul")
-                df["Tarih_Format"] = df["datetime"].dt.strftime("%d.%m.%Y")
                 df["Gun"] = df["datetime"].dt.strftime("%d.%m.%Y")
             else:
-                df["Tarih_Format"] = df["date"].astype(str)
                 df["Gun"] = df["date"].astype(str)
 
             df["Oyun_No"] = [f"Oyun #{i+1}" for i in range(len(df))]
 
-            # 1. GRAFİK: Oyun bazlı toplam skor grafiği (Sıkıştırılmış Yükseklik & Temiz Hover)
-            fig_game_score = px.bar(
-                df,
-                x="Oyun_No",
-                y="total_score",
-                title="🎮 Oyun Bazlı Toplam Skorlar",
-                labels={"Oyun_No": "", "total_score": "Toplam Skor"},
-                text="total_score"
-            )
-            fig_game_score.update_traces(
-                marker_color="#ff6b35",
-                marker_line_color="#ffa580",
-                marker_line_width=1,
-                opacity=0.9,
-                textposition="outside",
-                hovertemplate="<b>%{x}</b><br>Skor: %{y}<extra></extra>"
-            )
-            fig_game_score.update_layout(
-                template="plotly_dark",
-                paper_bgcolor="rgba(0,0,0,0)",
-                plot_bgcolor="rgba(0,0,0,0)",
-                height=340,
-                margin=dict(t=40, b=20, l=10, r=10),
-                xaxis=dict(showgrid=False, title=""),
-                yaxis=dict(showgrid=True, gridcolor="rgba(255,255,255,0.05)", title="Skor")
-            )
-            st.plotly_chart(fig_game_score, use_container_width=True)
+            # Analist KPI Kartları
+            std_dev, bounce_back, decay = calculate_score_metrics(df_p_turns)
+            
+            col1, col2, col3 = st.columns(3)
+            with col1:
+                if std_dev is not None:
+                    st.metric(
+                        "📊 Ritim Dalgalanması (Std Sapma)",
+                        f"±{std_dev:.1f} Puan",
+                        delta="Düşük = İstikrarlı" if std_dev < 25 else "Yüksek Dalgalanma",
+                        delta_color="normal" if std_dev < 25 else "inverse"
+                    )
+                else:
+                    st.metric("📊 Ritim Dalgalanması", "Veri Yok")
+
+            with col2:
+                if bounce_back is not None:
+                    st.metric(
+                        "🧠 Bounce-Back (Toparlanma Hızı)",
+                        f"%{bounce_back:.1f}",
+                        delta="Baskı Sonrası Reaksiyon"
+                    )
+                else:
+                    st.metric("🧠 Bounce-Back Rate", "Veri Yok")
+
+            with col3:
+                if decay is not None:
+                    st.metric(
+                        "⚡ Yorulma Eğrisi (Decay)",
+                        f"{decay:+.1f}%",
+                        delta="Set Sonu Performansı",
+                        delta_color="normal" if decay >= 0 else "inverse"
+                    )
+                else:
+                    st.metric("⚡ Yorulma Eğrisi", "Veri Yok")
 
             st.markdown("---")
 
-            # 2. GRAFİK: Gün bazlı ortalama (Dinamik Y-Ekseni Ölçeği & Zarif Trend)
+            # 1. Grafik: Gün bazlı ortalama (Dinamik Y-Ekseni Ölçeği)
             df_daily = df.groupby("Gun", sort=False).agg({"avg_3dart": "mean"}).reset_index()
             df_daily["avg_3dart_round"] = df_daily["avg_3dart"].round(2)
 
@@ -122,7 +165,7 @@ def render(player_name, db_path, t_func):
                 x="Gun",
                 y="avg_3dart_round",
                 markers=True,
-                title="📅 Gün Bazlı Ortalama 3-Ok Skoru Trendi",
+                title="📈 Günlük 3-Ok Skor Trendi & Ritim Çizgisi",
                 labels={"Gun": "", "avg_3dart_round": "3-Ok Ort."}
             )
             fig_daily.update_traces(
@@ -133,7 +176,6 @@ def render(player_name, db_path, t_func):
                 hovertemplate="<b>Tarih: %{x}</b><br>Ortalama: %{y}<extra></extra>"
             )
             
-            # Y eksenini 0'a zorlamayarak trend dalgalanmasını net gösterme
             min_y = max(0, df_daily["avg_3dart_round"].min() - 5)
             max_y = df_daily["avg_3dart_round"].max() + 5
 
@@ -141,7 +183,7 @@ def render(player_name, db_path, t_func):
                 template="plotly_dark",
                 paper_bgcolor="rgba(0,0,0,0)",
                 plot_bgcolor="rgba(0,0,0,0)",
-                height=340,
+                height=320,
                 margin=dict(t=40, b=20, l=10, r=10),
                 xaxis=dict(showgrid=False, title=""),
                 yaxis=dict(showgrid=True, gridcolor="rgba(255,255,255,0.05)", range=[min_y, max_y], title="3-Ok Ort.")
@@ -150,10 +192,10 @@ def render(player_name, db_path, t_func):
 
             st.markdown("---")
 
-            # 3. GRAFİK: Atış Puanı Aralık Dağılımı
+            # 2. Grafik: Atış Puanı Aralık Dağılımı (Dart Psikolojisi)
             if not df_p_turns.empty and "score" in df_p_turns.columns:
                 bins = [-1, 20, 40, 60, 80, 100, 140, 180]
-                labels = ['0-20', '21-40', '41-60', '61-80', '81-100', '101-140', '141-180']
+                labels = ['0-20 (Kaçak)', '21-40 (Zayıf)', '41-60 (Standart)', '61-80 (İyi)', '81-100 (Çok İyi)', '101-140 (Yüksek)', '141-180 (Maximum)']
                 
                 df_turns = df_p_turns.copy()
                 df_turns['Skor_Araligi'] = pd.cut(df_turns['score'], bins=bins, labels=labels)
@@ -164,8 +206,8 @@ def render(player_name, db_path, t_func):
                     dist_df,
                     x='Aralık',
                     y='Adet',
-                    title="🎯 Atış Puanı Aralık Dağılımı (Dart Psikolojisi Analizi)",
-                    labels={'Aralık': 'Skor Aralığı', 'Adet': 'Atış Sıklığı'},
+                    title="🎯 Atış Puanı Dağılımı (Hata & Başarı Profil Analizi)",
+                    labels={'Aralık': 'Skor Aralığı', 'Adet': 'Atış Adedi'},
                     text='Adet'
                 )
                 fig_dist.update_traces(
@@ -180,39 +222,35 @@ def render(player_name, db_path, t_func):
                     template="plotly_dark",
                     paper_bgcolor="rgba(0,0,0,0)",
                     plot_bgcolor="rgba(0,0,0,0)",
-                    height=340,
+                    height=320,
                     margin=dict(t=40, b=20, l=10, r=10),
                     xaxis=dict(showgrid=False, title="Skor Aralığı"),
                     yaxis=dict(showgrid=True, gridcolor="rgba(255,255,255,0.05)", title="Adet")
                 )
                 st.plotly_chart(fig_dist, use_container_width=True)
-            else:
-                st.info("Atış turu (turns) verisi bulunamadığı için aralık dağılımı oluşturulamadı.")
 
             st.markdown("---")
 
-            # 4. TABLO: Oyun Detayları
-            st.markdown("### 📋 Oyun Detayları (Ortalama & Toplam Skor)")
+            # 3. Tablo: Oyun Detayları
+            st.markdown("### 📋 Oyun Performans Logları")
             table_cols = [c for c in ["date", "training_mode", "total_score", "avg_3dart", "darts_thrown", "rounds"] if c in df.columns]
             display_df = df[table_cols].copy()
             display_df.columns = [col.replace("date", "Tarih").replace("training_mode", "Mod").replace("total_score", "Toplam Skor").replace("avg_3dart", "3-Ok Ort.").replace("darts_thrown", "Ok Sayısı").replace("rounds", "Tur") for col in display_df.columns]
             st.dataframe(display_df, use_container_width=True, hide_index=True)
 
     # ==========================================
-    # 2. AROUND THE CLOCK SEKMESİ
+    # 2. AROUND THE CLOCK SEKMESİ (BOTTLENECK ANALYTICS)
     # ==========================================
     with sub2:
-        st.subheader("🔄 Around the Clock (ATC) Detaylı Analiz")
+        st.subheader("🔄 Around the Clock - Darboğaz & Zayıf Halka Analizi")
         if df_a_sessions.empty:
             st.info("Henüz kaydedilmiş Around the Clock oturumu bulunmuyor.")
         else:
             df_a = df_a_sessions.copy()
             if "started_at" in df_a.columns and df_a["started_at"].notna().any():
                 df_a["datetime"] = pd.to_datetime(df_a["started_at"], unit="s", utc=True).dt.tz_convert("Europe/Istanbul")
-                df_a["Tarih_Format"] = df_a["datetime"].dt.strftime("%d.%m.%Y")
                 df_a["Gun"] = df_a["datetime"].dt.strftime("%d.%m.%Y")
             else:
-                df_a["Tarih_Format"] = df_a["date"].astype(str)
                 df_a["Gun"] = df_a["date"].astype(str)
 
             df_a["Oyun_No"] = [f"Oyun #{i+1}" for i in range(len(df_a))]
@@ -235,37 +273,44 @@ def render(player_name, db_path, t_func):
             else:
                 st.markdown("---")
 
-                # 1. Grafik: Oyun bazlı atılan ok sayısı
-                fig_game_darts = px.bar(
-                    df_a_filtered,
-                    x="Oyun_No",
-                    y="darts_thrown",
-                    title=f"🎯 Oyun Bazlı Atılan Toplam Ok Sayısı ({selected_mode})",
-                    labels={"Oyun_No": "", "darts_thrown": "Atılan Ok"},
-                    text="darts_thrown"
-                )
-                fig_game_darts.update_traces(
-                    marker_color="#4ecdc4",
-                    marker_line_color="#8cedc5",
-                    marker_line_width=1,
-                    opacity=0.9,
-                    textposition="outside",
-                    hovertemplate="<b>%{x}</b><br>Ok Sayısı: %{y}<extra></extra>"
-                )
-                fig_game_darts.update_layout(
-                    template="plotly_dark",
-                    paper_bgcolor="rgba(0,0,0,0)",
-                    plot_bgcolor="rgba(0,0,0,0)",
-                    height=340,
-                    margin=dict(t=40, b=20, l=10, r=10),
-                    xaxis=dict(showgrid=False, title=""),
-                    yaxis=dict(showgrid=True, gridcolor="rgba(255,255,255,0.05)", title="Ok Sayısı")
-                )
-                st.plotly_chart(fig_game_darts, use_container_width=True)
+                # Segment Başına Harcanan Ok Analizi (Zayıf Halka)
+                if not df_a_targets.empty and "target" in df_a_targets.columns and "darts_thrown" in df_a_targets.columns:
+                    target_stats = df_a_targets.groupby("target")["darts_thrown"].mean().reset_index()
+                    target_stats.columns = ["Hedef_Segment", "Ortalama_Ok"]
+                    target_stats = target_stats.sort_values(by="Hedef_Segment")
 
-                st.markdown("---")
+                    worst_targets = target_stats.sort_values(by="Ortalama_Ok", ascending=False).head(3)
+                    worst_list = ", ".join([f"**Segment {row['Hedef_Segment']}** ({row['Ortalama_Ok']:.1f} ok)" for _, row in worst_targets.iterrows()])
 
-                # 2. Grafik: Gün bazlı isabet oranı (%)
+                    st.warning(f"⚠️ **Zayıf Halka (Bottleneck) Tespiti:** En çok zaman/ok harcadığın 3 hedef: {worst_list}. Antrenman odağını bu segmentlere kaydırmalısın.")
+
+                    fig_targets = px.bar(
+                        target_stats,
+                        x="Hedef_Segment",
+                        y="Ortalama_Ok",
+                        title="🎯 Segment Başına Ort. Harcanan Ok Sayısı (Yüksek Barlar = Zayıf Nokta)",
+                        labels={"Hedef_Segment": "Hedef Segment", "Ortalama_Ok": "Ort. Ok Sayısı"},
+                        text="Ortalama_Ok"
+                    )
+                    fig_targets.update_traces(
+                        marker_color="#ff6b35",
+                        texttemplate="%{y:.1f}",
+                        textposition="outside"
+                    )
+                    fig_targets.update_layout(
+                        template="plotly_dark",
+                        paper_bgcolor="rgba(0,0,0,0)",
+                        plot_bgcolor="rgba(0,0,0,0)",
+                        height=320,
+                        margin=dict(t=40, b=20, l=10, r=10),
+                        xaxis=dict(showgrid=False, dtick=1),
+                        yaxis=dict(showgrid=True, gridcolor="rgba(255,255,255,0.05)")
+                    )
+                    st.plotly_chart(fig_targets, use_container_width=True)
+
+                    st.markdown("---")
+
+                # 1. Grafik: Gün bazlı isabet oranı (%)
                 df_daily_a = df_a_filtered.groupby("Gun", sort=False).agg({"hit_rate": "mean"}).reset_index()
                 df_daily_a["hit_rate_round"] = df_daily_a["hit_rate"].round(1)
 
@@ -274,14 +319,14 @@ def render(player_name, db_path, t_func):
                     x="Gun",
                     y="hit_rate_round",
                     markers=True,
-                    title=f"📈 Gün Bazlı Ortalama İsabet Oranı (%) Trendi ({selected_mode})",
+                    title=f"📈 İsabet Oranı (%) Trendi ({selected_mode})",
                     labels={"Gun": "", "hit_rate_round": "İsabet (%)"}
                 )
                 fig_daily_hit.update_traces(
-                    line=dict(color="#ff6b35", width=3),
-                    marker=dict(size=8, color="#ff6b35", line=dict(width=2, color="#ffffff")),
+                    line=dict(color="#4ecdc4", width=3),
+                    marker=dict(size=8, color="#4ecdc4", line=dict(width=2, color="#ffffff")),
                     fill="tozeroy",
-                    fillcolor="rgba(255, 107, 53, 0.08)",
+                    fillcolor="rgba(78, 205, 196, 0.08)",
                     hovertemplate="<b>Tarih: %{x}</b><br>İsabet: %{y}%<extra></extra>"
                 )
 
@@ -292,7 +337,7 @@ def render(player_name, db_path, t_func):
                     template="plotly_dark",
                     paper_bgcolor="rgba(0,0,0,0)",
                     plot_bgcolor="rgba(0,0,0,0)",
-                    height=340,
+                    height=320,
                     margin=dict(t=40, b=20, l=10, r=10),
                     xaxis=dict(showgrid=False, title=""),
                     yaxis=dict(showgrid=True, gridcolor="rgba(255,255,255,0.05)", range=[min_hit, max_hit], title="İsabet (%)")
@@ -301,7 +346,7 @@ def render(player_name, db_path, t_func):
 
                 st.markdown("---")
 
-                # 3. Tablo
+                # 2. Tablo
                 st.markdown("### 📋 ATC Oyun Geçmişi ve Performans Detayları")
                 table_cols_a = [c for c in ["date", "mode", "total_score", "darts_thrown", "darts_hit", "hit_rate"] if c in df_a_filtered.columns]
                 display_df_a = df_a_filtered[table_cols_a].copy()
