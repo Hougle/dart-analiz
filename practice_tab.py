@@ -1,6 +1,6 @@
 """
 Practice Modülü ve Alt Sekmeleri (Score Training, Around the Clock, Singles Training)
-Tamamen kullanıcı isteklerine göre yeniden tasarlandı.
+ATC mod filtreleri ve premium görsel tasarımlarla güncellendi.
 """
 import streamlit as st
 import subprocess
@@ -87,16 +87,29 @@ def render(player_name, db_path, t_func):
                 x=df.index,
                 y="total_score",
                 title="🎮 Oyun Bazlı Toplam Skorlar",
-                labels={"x": "Oyun Sırası / İndeks", "total_score": "Toplam Skor"},
+                labels={"x": "Oyun Sırası", "total_score": "Toplam Skor"},
                 text="total_score"
             )
-            fig_game_score.update_traces(marker_color="#ff6b35", textposition="outside")
-            fig_game_score.update_layout(template="plotly_dark", margin=dict(t=40, b=20, l=20, r=20))
+            fig_game_score.update_traces(
+                marker_color="#ff6b35",
+                marker_line_color="#ffa580",
+                marker_line_width=1.5,
+                opacity=0.9,
+                textposition="outside"
+            )
+            fig_game_score.update_layout(
+                template="plotly_dark",
+                paper_bgcolor="rgba(0,0,0,0)",
+                plot_bgcolor="rgba(0,0,0,0)",
+                margin=dict(t=50, b=20, l=20, r=20),
+                xaxis=dict(showgrid=False),
+                yaxis=dict(showgrid=True, gridcolor="rgba(255,255,255,0.05)")
+            )
             st.plotly_chart(fig_game_score, use_container_width=True)
 
             st.markdown("---")
 
-            # 2. Grafik: Gün bazlı ortalama skoru (Günlük gruplama)
+            # 2. Grafik: Gün bazlı ortalama skoru (Gradient Dolgulu Çizgi Grafik)
             df_daily = df.groupby("Gun").agg({"avg_3dart": "mean", "total_score": "mean"}).reset_index()
             fig_daily = px.line(
                 df_daily,
@@ -106,8 +119,20 @@ def render(player_name, db_path, t_func):
                 title="📅 Gün Bazlı Ortalama 3-Ok Skoru Trendi",
                 labels={"Gun": "Tarih (Gün)", "avg_3dart": "Günlük Ortalama (3-Ok)"}
             )
-            fig_daily.update_traces(line_color="#4ecdc4", marker=dict(size=10))
-            fig_daily.update_layout(template="plotly_dark", margin=dict(t=40, b=20, l=20, r=20))
+            fig_daily.update_traces(
+                line=dict(color="#4ecdc4", width=3),
+                marker=dict(size=10, color="#4ecdc4", line=dict(width=2, color="#ffffff")),
+                fill="tozeroy",
+                fillcolor="rgba(78, 205, 196, 0.1)"
+            )
+            fig_daily.update_layout(
+                template="plotly_dark",
+                paper_bgcolor="rgba(0,0,0,0)",
+                plot_bgcolor="rgba(0,0,0,0)",
+                margin=dict(t=50, b=20, l=20, r=20),
+                xaxis=dict(showgrid=False),
+                yaxis=dict(showgrid=True, gridcolor="rgba(255,255,255,0.05)")
+            )
             st.plotly_chart(fig_daily, use_container_width=True)
 
             st.markdown("---")
@@ -127,11 +152,24 @@ def render(player_name, db_path, t_func):
                     x='Aralık',
                     y='Adet',
                     title="🎯 Atış Puanı Aralık Dağılımı (Dart Psikolojisi Analizi)",
-                    labels={'Aralık': 'Skor Aralığı', 'Adet': 'Atış Sıklığı (Frekans)'},
+                    labels={'Aralık': 'Skor Aralığı', 'Adet': 'Atış Sıklığı'},
                     text='Adet'
                 )
-                fig_dist.update_traces(marker_color="#ffe66d", textposition="outside")
-                fig_dist.update_layout(template="plotly_dark", margin=dict(t=40, b=20, l=20, r=20))
+                fig_dist.update_traces(
+                    marker_color="#ffe66d",
+                    marker_line_color="#fff2b2",
+                    marker_line_width=1.5,
+                    opacity=0.9,
+                    textposition="outside"
+                )
+                fig_dist.update_layout(
+                    template="plotly_dark",
+                    paper_bgcolor="rgba(0,0,0,0)",
+                    plot_bgcolor="rgba(0,0,0,0)",
+                    margin=dict(t=50, b=20, l=20, r=20),
+                    xaxis=dict(showgrid=False, tickangle=-15),
+                    yaxis=dict(showgrid=True, gridcolor="rgba(255,255,255,0.05)")
+                )
                 st.plotly_chart(fig_dist, use_container_width=True)
             else:
                 st.info("Atış turu (turns) verisi bulunamadığı için aralık dağılımı oluşturulamadı.")
@@ -162,60 +200,110 @@ def render(player_name, db_path, t_func):
                 df_a["Tarih_Format"] = df_a["date"].astype(str)
                 df_a["Gun"] = df_a["date"].astype(str)
 
-            # 1. Grafik: Oyun bazlı atılan ok sayısı
-            fig_game_darts = px.bar(
-                df_a,
-                x=df_a.index,
-                y="darts_thrown",
-                title="🎯 Oyun Bazlı Atılan Toplam Ok Sayısı (Düşük = İyi)",
-                labels={"x": "Oyun Sırası / İndeks", "darts_thrown": "Atılan Ok Sayısı"},
-                text="darts_thrown"
-            )
-            fig_game_darts.update_traces(marker_color="#4ecdc4", textposition="outside")
-            fig_game_darts.update_layout(template="plotly_dark", margin=dict(t=40, b=20, l=20, r=20))
-            st.plotly_chart(fig_game_darts, use_container_width=True)
+            # Mod Filtresi (Hepsi, all, single, double, triple)
+            mode_col = "mode" if "mode" in df_a.columns else (df_a.columns[1] if len(df_a.columns) > 1 else None)
+            
+            if mode_col:
+                available_modes = ["Tümü"] + list(df_a[mode_col].dropna().unique())
+                selected_mode = st.selectbox("🎯 ATC Modu Seçin", available_modes, index=0)
+                
+                if selected_mode != "Tümü":
+                    df_a_filtered = df_a[df_a[mode_col] == selected_mode].copy()
+                else:
+                    df_a_filtered = df_a.copy()
+            else:
+                df_a_filtered = df_a.copy()
 
-            st.markdown("---")
+            if df_a_filtered.empty:
+                st.info(f"Seçilen '{selected_mode}' modunda henüz oturum bulunmuyor.")
+            else:
+                st.markdown("---")
 
-            # 2. Grafik: Gün bazlı ortalama isabet oranı (%) trendi
-            df_daily_a = df_a.groupby("Gun").agg({"hit_rate": "mean", "darts_thrown": "mean"}).reset_index()
-            fig_daily_hit = px.line(
-                df_daily_a,
-                x="Gun",
-                y="hit_rate",
-                markers=True,
-                title="📈 Gün Bazlı Ortalama İsabet Oranı (%) Trendi",
-                labels={"Gun": "Tarih (Gün)", "hit_rate": "Ortalama İsabet Oranı (%)"}
-            )
-            fig_daily_hit.update_traces(line_color="#ff6b35", marker=dict(size=10))
-            fig_daily_hit.update_layout(template="plotly_dark", margin=dict(t=40, b=20, l=20, r=20))
-            st.plotly_chart(fig_daily_hit, use_container_width=True)
-
-            st.markdown("---")
-
-            # 3. Grafik: Süre ve Verimlilik Dağılımı
-            if "duration_sec" in df_a.columns and df_a["duration_sec"].notna().any():
-                fig_duration = px.scatter(
-                    df_a,
-                    x="darts_thrown",
-                    y="duration_sec",
-                    color="hit_rate",
-                    size="hit_rate",
-                    title="⏱️ Ok Sayısı vs Süre & İsabet İlişkisi (Hız & Verimlilik)",
-                    labels={"darts_thrown": "Atılan Ok", "duration_sec": "Süre (Saniye)", "hit_rate": "İsabet Oranı (%)"},
-                    color_continuous_scale="Viridis"
+                # 1. Grafik: Oyun bazlı atılan ok sayısı (Düşük = İyi)
+                fig_game_darts = px.bar(
+                    df_a_filtered,
+                    x=df_a_filtered.index,
+                    y="darts_thrown",
+                    title=f"🎯 Oyun Bazlı Atılan Toplam Ok Sayısı ({selected_mode})",
+                    labels={"x": "Oyun Sırası", "darts_thrown": "Atılan Ok Sayısı"},
+                    text="darts_thrown"
                 )
-                fig_duration.update_layout(template="plotly_dark", margin=dict(t=40, b=20, l=20, r=20))
-                st.plotly_chart(fig_duration, use_container_width=True)
+                fig_game_darts.update_traces(
+                    marker_color="#4ecdc4",
+                    marker_line_color="#8cedc5",
+                    marker_line_width=1.5,
+                    opacity=0.9,
+                    textposition="outside"
+                )
+                fig_game_darts.update_layout(
+                    template="plotly_dark",
+                    paper_bgcolor="rgba(0,0,0,0)",
+                    plot_bgcolor="rgba(0,0,0,0)",
+                    margin=dict(t=50, b=20, l=20, r=20),
+                    xaxis=dict(showgrid=False),
+                    yaxis=dict(showgrid=True, gridcolor="rgba(255,255,255,0.05)")
+                )
+                st.plotly_chart(fig_game_darts, use_container_width=True)
 
-            st.markdown("---")
+                st.markdown("---")
 
-            # 4. Tablo: Oyun Geçmişi
-            st.markdown("### 📋 ATC Oyun Geçmişi ve Performans Detayları")
-            table_cols_a = [c for c in ["date", "mode", "total_score", "darts_thrown", "darts_hit", "hit_rate", "duration_sec"] if c in df_a.columns]
-            display_df_a = df_a[table_cols_a].copy()
-            display_df_a.columns = [col.replace("date", "Tarih").replace("mode", "Mod").replace("total_score", "Skor").replace("darts_thrown", "Atılan Ok").replace("darts_hit", "İsabet").replace("hit_rate", "İsabet Oranı (%)").replace("duration_sec", "Süre (sn)") for col in display_df_a.columns]
-            st.dataframe(display_df_a, use_container_width=True, hide_index=True)
+                # 2. Grafik: Gün bazlı ortalama isabet oranı (%) trendi
+                df_daily_a = df_a_filtered.groupby("Gun").agg({"hit_rate": "mean", "darts_thrown": "mean"}).reset_index()
+                fig_daily_hit = px.line(
+                    df_daily_a,
+                    x="Gun",
+                    y="hit_rate",
+                    markers=True,
+                    title=f"📈 Gün Bazlı Ortalama İsabet Oranı (%) Trendi ({selected_mode})",
+                    labels={"Gun": "Tarih (Gün)", "hit_rate": "Ortalama İsabet Oranı (%)"}
+                )
+                fig_daily_hit.update_traces(
+                    line=dict(color="#ff6b35", width=3),
+                    marker=dict(size=10, color="#ff6b35", line=dict(width=2, color="#ffffff")),
+                    fill="tozeroy",
+                    fillcolor="rgba(255, 107, 53, 0.1)"
+                )
+                fig_daily_hit.update_layout(
+                    template="plotly_dark",
+                    paper_bgcolor="rgba(0,0,0,0)",
+                    plot_bgcolor="rgba(0,0,0,0)",
+                    margin=dict(t=50, b=20, l=20, r=20),
+                    xaxis=dict(showgrid=False),
+                    yaxis=dict(showgrid=True, gridcolor="rgba(255,255,255,0.05)")
+                )
+                st.plotly_chart(fig_daily_hit, use_container_width=True)
+
+                st.markdown("---")
+
+                # 3. Grafik: Ok Sayısı vs İsabet Oranı Dağılımı (Verimlilik Scatter)
+                fig_scatter = px.scatter(
+                    df_a_filtered,
+                    x="darts_thrown",
+                    y="hit_rate",
+                    color="hit_rate",
+                    size="darts_hit" if "darts_hit" in df_a_filtered.columns else None,
+                    title="🎯 Atılan Ok & İsabet Oranı Verimlilik Matrisi",
+                    labels={"darts_thrown": "Atılan Ok Sayısı", "hit_rate": "İsabet Oranı (%)"},
+                    color_continuous_scale="Teal"
+                )
+                fig_scatter.update_layout(
+                    template="plotly_dark",
+                    paper_bgcolor="rgba(0,0,0,0)",
+                    plot_bgcolor="rgba(0,0,0,0)",
+                    margin=dict(t=50, b=20, l=20, r=20),
+                    xaxis=dict(showgrid=True, gridcolor="rgba(255,255,255,0.05)"),
+                    yaxis=dict(showgrid=True, gridcolor="rgba(255,255,255,0.05)")
+                )
+                st.plotly_chart(fig_scatter, use_container_width=True)
+
+                st.markdown("---")
+
+                # 4. Tablo: Oyun Geçmişi
+                st.markdown("### 📋 ATC Oyun Geçmişi ve Performans Detayları")
+                table_cols_a = [c for c in ["date", "mode", "total_score", "darts_thrown", "darts_hit", "hit_rate"] if c in df_a_filtered.columns]
+                display_df_a = df_a_filtered[table_cols_a].copy()
+                display_df_a.columns = [col.replace("date", "Tarih").replace("mode", "Mod").replace("total_score", "Skor").replace("darts_thrown", "Atılan Ok").replace("darts_hit", "İsabet").replace("hit_rate", "İsabet Oranı (%)") for col in display_df_a.columns]
+                st.dataframe(display_df_a, use_container_width=True, hide_index=True)
 
     # ==========================================
     # 3. SINGLES TRAINING SEKMESİ
