@@ -229,7 +229,7 @@ def render(player_name, db_path, t_func):
             st.dataframe(display_df, use_container_width=True, hide_index=True)
 
     # ==========================================
-    # 2. AROUND THE CLOCK SEKMESİ (BOTTLENECK ANALYTICS)
+    # 2. AROUND THE CLOCK SEKMESİ
     # ==========================================
     with sub2:
         st.subheader("🔄 Around the Clock - Darboğaz & Zayıf Halka Analizi")
@@ -243,124 +243,97 @@ def render(player_name, db_path, t_func):
             else:
                 df_a["Gun"] = df_a["date"].astype(str)
 
-            df_a["Oyun_No"] = [f"Oyun #{i+1}" for i in range(len(df_a))]
+            # Özel ATC Mod Filtresi Listesi (Hepsi, all, single, double, triple)
+            atc_modes = ["Hepsi", "all", "single", "double", "triple"]
+            selected_mode = st.selectbox("🎯 ATC Modu Seçin", atc_modes, index=0)
 
-            # Mod Filtresi
             mode_col = "mode" if "mode" in df_a.columns else (df_a.columns[1] if len(df_a.columns) > 1 else None)
-            
-            if mode_col:
-                available_modes = ["Tümü"] + [m for m in ["hepsi", "all", "single", "double", "triple"] if m in df_a[mode_col].unique()]
-                if len(available_modes) == 1:
-                    available_modes += list(df_a[mode_col].dropna().unique())
-                selected_mode = st.selectbox("🎯 ATC Modu Seçin", list(dict.fromkeys(available_modes)), index=0)
-                
-                if selected_mode != "Tümü":
-                    df_a_filtered = df_a[df_a[mode_col] == selected_mode].copy()
-                else:
-                    df_a_filtered = df_a.copy()
+
+            if selected_mode != "Hepsi" and mode_col:
+                df_a_filtered = df_a[df_a[mode_col].astype(str).str.lower() == selected_mode.lower()].copy()
             else:
                 df_a_filtered = df_a.copy()
 
-            # Top KPI Kartları
-            avg_hit = df_a_filtered["hit_rate"].mean() if "hit_rate" in df_a_filtered.columns else 0
-            avg_darts = df_a_filtered["darts_thrown"].mean() if "darts_thrown" in df_a_filtered.columns else 0
-
-            c1, c2 = st.columns(2)
-            with c1:
-                st.metric("🎯 Ortalama İsabet Oranı", f"%{avg_hit:.1f}")
-            with c2:
-                st.metric("🏹 Oyun Başı Ort. Harcanan Ok", f"{avg_darts:.1f} Ok")
-
-            st.markdown("---")
-
-            # Bottleneck / Segment Analizi (Eğer targets tablosu doluysa doğrudan, değilse oturum katsayısından türet)
-            if not df_a_targets.empty and "target" in df_a_targets.columns and "darts_thrown" in df_a_targets.columns:
-                target_stats = df_a_targets.groupby("target")["darts_thrown"].mean().reset_index()
-                target_stats.columns = ["Hedef_Segment", "Ortalama_Ok"]
+            if df_a_filtered.empty:
+                st.info(f"Seçilen '{selected_mode}' modunda henüz antrenman verisi bulunmuyor.")
             else:
-                # Target tablosu henüz yoksa 1-20 segmentleri için sentetik dağılım gösterimi
-                import numpy as np
-                np.random.seed(42)
-                segments = [str(i) for i in range(1, 21)] + ["Bull"]
-                base_darts = [round(avg_darts / 20 + (i % 3) * 0.4, 1) for i in range(len(segments))]
-                target_stats = pd.DataFrame({"Hedef_Segment": segments, "Ortalama_Ok": base_darts})
+                # Top KPI Kartları
+                avg_hit = df_a_filtered["hit_rate"].mean() if "hit_rate" in df_a_filtered.columns else 0
+                avg_darts = df_a_filtered["darts_thrown"].mean() if "darts_thrown" in df_a_filtered.columns else 0
 
-            target_stats = target_stats.sort_values(by="Ortalama_Ok", ascending=False)
-            worst_3 = target_stats.head(3)
-            worst_list = ", ".join([f"**Segment {row['Hedef_Segment']}** ({row['Ortalama_Ok']:.1f} ok)" for _, row in worst_3.iterrows()])
+                c1, c2 = st.columns(2)
+                with c1:
+                    st.metric("🎯 Ortalama İsabet Oranı", f"%{avg_hit:.1f}")
+                with c2:
+                    st.metric("🏹 Oyun Başı Ort. Harcanan Ok", f"{avg_darts:.1f} Ok")
 
-            st.warning(f"⚠️ **Zayıf Halka (Bottleneck) Tespiti:** En çok ok harcadığın 3 hedef: {worst_list}. Antrenman sürenin %80'ini bu segmentlere ayırmalısın.")
+                st.markdown("---")
 
-            fig_targets = px.bar(
-                target_stats.sort_values(by="Hedef_Segment"),
-                x="Hedef_Segment",
-                y="Ortalama_Ok",
-                title="🎯 Segment Başına Ort. Harcanan Ok Sayısı (Yüksek Barlar = Zayıf Nokta)",
-                labels={"Hedef_Segment": "Hedef Segment", "Ortalama_Ok": "Ort. Ok Sayısı"},
-                text="Ortalama_Ok"
-            )
-            fig_targets.update_traces(
-                marker_color="#ff6b35",
-                texttemplate="%{y:.1f}",
-                textposition="outside"
-            )
-            fig_targets.update_layout(
-                template="plotly_dark",
-                paper_bgcolor="rgba(0,0,0,0)",
-                plot_bgcolor="rgba(0,0,0,0)",
-                height=320,
-                margin=dict(t=40, b=20, l=10, r=10),
-                xaxis=dict(showgrid=False, dtick=1),
-                yaxis=dict(showgrid=True, gridcolor="rgba(255,255,255,0.05)")
-            )
-            st.plotly_chart(fig_targets, use_container_width=True)
+                # Segment Başına Ok Analizi ve Sayısal Sıralama Fix'i
+                if not df_a_targets.empty and "target" in df_a_targets.columns and "darts_thrown" in df_a_targets.columns:
+                    target_stats = df_a_targets.groupby("target")["darts_thrown"].mean().reset_index()
+                    target_stats.columns = ["Hedef_Segment", "Ortalama_Ok"]
+                else:
+                    import numpy as np
+                    np.random.seed(42)
+                    segments = [str(i) for i in range(1, 21)] + ["Bull"]
+                    base_darts = [round(avg_darts / 20 + (i % 3) * 0.4, 1) for i in range(len(segments))]
+                    target_stats = pd.DataFrame({"Hedef_Segment": segments, "Ortalama_Ok": base_darts})
 
-            st.markdown("---")
+                # Sayısal Sıralama Düzenleme (1..20 ve Bull)
+                def sort_key(val):
+                    s = str(val).strip()
+                    if s.isdigit():
+                        return (0, int(s))
+                    return (1, s)
 
-            # Günlük Trend
-            df_daily_a = df_a_filtered.groupby("Gun", sort=False).agg({"hit_rate": "mean"}).reset_index()
-            df_daily_a["hit_rate_round"] = df_daily_a["hit_rate"].round(1)
+                target_stats["sort_col"] = target_stats["Hedef_Segment"].apply(sort_key)
+                target_stats = target_stats.sort_values(by="sort_col").drop(columns=["sort_col"])
 
-            fig_daily_hit = px.line(
-                df_daily_a,
-                x="Gun",
-                y="hit_rate_round",
-                markers=True,
-                title=f"📈 İsabet Oranı (%) Trendi ({selected_mode})",
-                labels={"Gun": "", "hit_rate_round": "İsabet (%)"}
-            )
-            fig_daily_hit.update_traces(
-                line=dict(color="#4ecdc4", width=3),
-                marker=dict(size=8, color="#4ecdc4", line=dict(width=2, color="#ffffff")),
-                fill="tozeroy",
-                fillcolor="rgba(78, 205, 196, 0.08)",
-                hovertemplate="<b>Tarih: %{x}</b><br>İsabet: %{y}%<extra></extra>"
-            )
+                worst_3 = target_stats.sort_values(by="Ortalama_Ok", ascending=False).head(3)
+                worst_list = ", ".join([f"**Segment {row['Hedef_Segment']}** ({row['Ortalama_Ok']:.1f} ok)" for _, row in worst_3.iterrows()])
 
-            min_hit = max(0, df_daily_a["hit_rate_round"].min() - 5)
-            max_hit = min(100, df_daily_a["hit_rate_round"].max() + 5)
+                # Sadece veri uyarısı (Açıklama metni kaldırıldı)
+                st.warning(f"⚠️ **Zayıf Halka (Bottleneck) Tespiti:** En çok ok harcanan 3 hedef: {worst_list}")
 
-            fig_daily_hit.update_layout(
-                template="plotly_dark",
-                paper_bgcolor="rgba(0,0,0,0)",
-                plot_bgcolor="rgba(0,0,0,0)",
-                height=320,
-                margin=dict(t=40, b=20, l=10, r=10),
-                xaxis=dict(showgrid=False, title=""),
-                yaxis=dict(showgrid=True, gridcolor="rgba(255,255,255,0.05)", range=[min_hit, max_hit], title="İsabet (%)")
-            )
-            st.plotly_chart(fig_daily_hit, use_container_width=True)
+                fig_targets = px.bar(
+                    target_stats,
+                    x="Hedef_Segment",
+                    y="Ortalama_Ok",
+                    title="🎯 Segment Başına Ort. Harcanan Ok Sayısı",
+                    labels={"Hedef_Segment": "Hedef Segment", "Ortalama_Ok": "Ort. Ok Sayısı"},
+                    text="Ortalama_Ok"
+                )
+                fig_targets.update_traces(
+                    marker_color="#ff6b35",
+                    texttemplate="%{y:.1f}",
+                    textposition="outside"
+                )
+                fig_targets.update_layout(
+                    template="plotly_dark",
+                    paper_bgcolor="rgba(0,0,0,0)",
+                    plot_bgcolor="rgba(0,0,0,0)",
+                    height=320,
+                    margin=dict(t=40, b=20, l=10, r=10),
+                    xaxis=dict(showgrid=False, type='category'),
+                    yaxis=dict(showgrid=True, gridcolor="rgba(255,255,255,0.05)")
+                )
+                st.plotly_chart(fig_targets, use_container_width=True)
 
-            st.markdown("---")
+                st.markdown("---")
 
-            st.markdown("### 📋 ATC Oyun Geçmişi ve Performans Detayları")
-            table_cols_a = [c for c in ["date", "mode", "total_score", "darts_thrown", "darts_hit", "hit_rate"] if c in df_a_filtered.columns]
-            display_df_a = df_a_filtered[table_cols_a].copy()
-            display_df_a.columns = [col.replace("date", "Tarih").replace("mode", "Mod").replace("total_score", "Skor").replace("darts_thrown", "Atılan Ok").replace("darts_hit", "İsabet").replace("hit_rate", "İsabet Oranı (%)") for col in display_df_a.columns]
-            st.dataframe(display_df_a, use_container_width=True, hide_index=True)
+                # Günlük Trend
+                df_daily_a = df_a_filtered.groupby("Gun", sort=False).agg({"hit_rate": "mean"}).reset_index()
+                df_daily_a["hit_rate_round"] = df_daily_a["hit_rate"].round(1)
 
-    # ==========================================
-    # 3. SINGLES TRAINING SEKMESİ
-    # ==========================================
-    with sub3:
-        render_singles_tab()
+                fig_daily_hit = px.line(
+                    df_daily_a,
+                    x="Gun",
+                    y="hit_rate_round",
+                    markers=True,
+                    title=f"📈 İsabet Oranı (%) Trendi ({selected_mode})",
+                    labels={"Gun": "", "hit_rate_round": "İsabet (%)"}
+                )
+                fig_daily_hit.update_traces(
+                    line=dict(color="#4ecdc4", width=3),
+                    marker=dict(size=8, color="#4ecdc
