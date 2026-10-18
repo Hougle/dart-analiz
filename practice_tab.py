@@ -243,8 +243,16 @@ def render(player_name, db_path, t_func):
             else:
                 df_a["Gun"] = df_a["date"].astype(str)
 
-            atc_modes = ["Hepsi", "all", "single", "double", "triple"]
+            # Doğru sütun: number_segment
+            atc_modes = ["Hepsi", "all", "single", "double", "treble"]
             selected_mode = st.selectbox("🎯 ATC Modu Seçin", atc_modes, index=0)
+
+            mode_col = "number_segment" if "number_segment" in df_a.columns else ("mode" if "mode" in df_a.columns else None)
+
+            if selected_mode != "Hepsi" and mode_col:
+                df_a_filtered = df_a[df_a[mode_col].astype(str).str.lower() == selected_mode.lower()].copy()
+            else:
+                df_a_filtered = df_a.copy()
 
             mode_col = "mode" if "mode" in df_a.columns else (df_a.columns[1] if len(df_a.columns) > 1 else None)
 
