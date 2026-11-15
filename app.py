@@ -1,5 +1,5 @@
 """
-🎯 Dart Analiz — Streamlit Ana Uygulama Dosyası
+🎯 Dart Analysis — Streamlit Main Application File
 """
 import re
 import streamlit as st
@@ -12,9 +12,10 @@ from pathlib import Path
 from datetime import datetime
 import streamlit_authenticator as stauth
 import practice_tab
+import coaching_page
 import ui_helpers
 
-st.set_page_config(page_title="Dart Analiz", page_icon="🎯", layout="wide")
+st.set_page_config(page_title="Dart Analysis", page_icon="🎯", layout="wide")
 
 ui_helpers.inject_mobile_css()
 
@@ -23,7 +24,7 @@ ENV_FILE = ".env"
 PLAYER = "Efe"
 
 # ============================================================
-# KİMLİK DOĞRULAMA (Admin girişi)
+# AUTHENTICATION (Admin Login)
 # ============================================================
 credentials = {
     "usernames": {
@@ -46,124 +47,124 @@ authenticator = stauth.Authenticate(
 
 if "role" not in st.session_state:
     st.session_state["role"] = "visitor"
-    st.session_state["name"] = "Ziyaretçi"
+    st.session_state["name"] = "Visitor"
     st.session_state["username"] = None
 
-# ---------------------------------------------------------------- DİL / LANGUAGE
-LANG = st.sidebar.radio("🌐 Dil / Language", ["TR", "EN"], horizontal=True, key="lang")
+# ---------------------------------------------------------------- LANGUAGE
+LANG = st.sidebar.radio("🌐 Language", ["EN", "TR"], horizontal=True, key="lang")
 
 EN = {
-    "🎯 DartCounter Analiz Panosu": "🎯 DartCounter Analysis Dashboard",
-    "⚠️ DartCounter token'ı bulunamadı veya geçersiz.": "⚠️ DartCounter token not found or invalid.",
-    "### 🔑 Token Nasıl Alınır?": "### 🔑 How to get the token",
-    "**1.** Tarayıcıda DartCounter'a giriş yap: `https://app.dartcounter.net`": "**1.** Log in to DartCounter in your browser: `https://app.dartcounter.net`",
-    "**2.** Herhangi bir maç sayfasını aç (Statistics → bir maç)": "**2.** Open any match page (Statistics → a match)",
-    "**3.** `F12` ile Developer Tools'u aç": "**3.** Open Developer Tools with `F12`",
-    "**4.** **Network** sekmesine tıkla": "**4.** Click the **Network** tab",
-    "**5.** **Fetch/XHR** filtresini seç": "**5.** Select the **Fetch/XHR** filter",
-    "**6.** Sayfayı yenile (Cmd+R)": "**6.** Refresh the page (Cmd+R)",
-    "**7.** Listede `api.dartcounter.net` içeren bir istek bul": "**7.** Find a request containing `api.dartcounter.net`",
-    "**8.** Sağ tıkla → Copy → Copy as cURL": "**8.** Right-click → Copy → Copy as cURL",
-    "**9.** `Bearer ` sonrası senin token'ındır": "**9.** The part after `Bearer ` is your token",
-    "**10.** Proje klasöründeki `.env` dosyasına yaz: `DARTCOUNTER_TOKEN=37520203|AbCdEf...`": "**10.** Put it in the `.env` file in the project folder: `DARTCOUNTER_TOKEN=37520203|AbCdEf...`",
-    "**11.** Kaydet ve sayfayı yenile.": "**11.** Save and refresh the page.",
-    "💡 Token'ı bir kere aldıktan sonra uzun süre kullanabilirsin.": "💡 Once you have the token you can use it for a long time.",
-    "🔑 Token Nasıl Alınır?": "🔑 How to get the token",
-    "🔑 Admin Girişi": "🔑 Admin Login",
-    "👤 Ziyaretçi": "👤 Visitor",
-    "🚪 Admin Çıkışı": "🚪 Admin Logout",
-    "✅ Token aktif": "✅ Token active",
-    "⚙️ İşlemler": "⚙️ Actions",
-    "🔄 YENİ MAÇLARI ÇEK": "🔄 FETCH NEW MATCHES",
-    "maçları çekiliyor...": "matches are being fetched...",
-    "(çıktı yok)": "(no output)",
-    "✅ Güncelleme tamamlandı!": "✅ Update completed!",
-    "Güncelleme tamamlandı!": "Update completed!",
-    "❌ Hata oluştu": "❌ An error occurred",
-    "Hata oluştu": "An error occurred",
-    "❌ Hatalı giriş": "❌ Invalid login",
-    "Hata": "Error",
-    "📥 URL ile Maç Ekle": "📥 Add Match by URL",
-    "DartCounter maç URL'si:": "DartCounter match URL:",
-    "Bu Maçı Ekle": "Add This Match",
-    "Önce token gerekli.": "A token is required first.",
-    "İndiriliyor...": "Downloading...",
-    "Maç eklendi!": "Match added!",
-    "URL boş.": "URL is empty.",
-    "🔄 Belirli Yılı Çek": "🔄 Fetch a Specific Year",
-    "Yıl:": "Year:",
-    "Bu Yılın Maçlarını Çek": "Fetch This Year's Matches",
-    "Oyuncu": "Player",
-    "Veritabanı": "Database",
-    "Henüz veri yok. Sidebar'dan 🔄 YENİ MAÇLARI ÇEK butonuna bas.": "No data yet. Press the 🔄 FETCH NEW MATCHES button in the sidebar.",
-    "Toplam Maç": "Total Matches",
-    "Galibiyet": "Wins",
-    "Mağlubiyet": "Losses",
-    "Kazanma %": "Win %",
-    "Ham Ort.": "Raw Avg.",
+    "🎯 DartCounter Analysis Dashboard": "🎯 DartCounter Analysis Dashboard",
+    "⚠️ DartCounter token not found or invalid.": "⚠️ DartCounter token not found or invalid.",
+    "### 🔑 How to get the token": "### 🔑 How to get the token",
+    "**1.** Log in to DartCounter in your browser: `https://app.dartcounter.net`": "**1.** Log in to DartCounter in your browser: `https://app.dartcounter.net`",
+    "**2.** Open any match page (Statistics → a match)": "**2.** Open any match page (Statistics → a match)",
+    "**3.** Open Developer Tools with `F12`": "**3.** Open Developer Tools with `F12`",
+    "**4.** Click the **Network** tab": "**4.** Click the **Network** tab",
+    "**5.** Select the **Fetch/XHR** filter": "**5.** Select the **Fetch/XHR** filter",
+    "**6.** Refresh the page (Cmd+R)": "**6.** Refresh the page (Cmd+R)",
+    "**7.** Find a request containing `api.dartcounter.net`": "**7.** Find a request containing `api.dartcounter.net`",
+    "**8.** Right-click → Copy → Copy as cURL": "**8.** Right-click → Copy → Copy as cURL",
+    "**9.** The part after `Bearer ` is your token": "**9.** The part after `Bearer ` is your token",
+    "**10.** Put it in the `.env` file in the project folder: `DARTCOUNTER_TOKEN=37520203|AbCdEf...`": "**10.** Put it in the `.env` file in the project folder: `DARTCOUNTER_TOKEN=37520203|AbCdEf...`",
+    "**11.** Save and refresh the page.": "**11.** Save and refresh the page.",
+    "💡 Once you have the token you can use it for a long time.": "💡 Once you have the token you can use it for a long time.",
+    "🔑 How to get the token": "🔑 How to get the token",
+    "🔑 Admin Login": "🔑 Admin Login",
+    "👤 Visitor": "👤 Visitor",
+    "🚪 Admin Logout": "🚪 Admin Logout",
+    "✅ Token active": "✅ Token active",
+    "⚙️ Actions": "⚙️ Actions",
+    "🔄 FETCH NEW MATCHES": "🔄 FETCH NEW MATCHES",
+    "matches are being fetched...": "matches are being fetched...",
+    "(no output)": "(no output)",
+    "✅ Update completed!": "✅ Update completed!",
+    "Update completed!": "Update completed!",
+    "❌ An error occurred": "❌ An error occurred",
+    "An error occurred": "An error occurred",
+    "❌ Invalid login": "❌ Invalid login",
+    "Error": "Error",
+    "📥 Add Match by URL": "📥 Add Match by URL",
+    "DartCounter match URL:": "DartCounter match URL:",
+    "Add This Match": "Add This Match",
+    "A token is required first.": "A token is required first.",
+    "Downloading...": "Downloading...",
+    "Match added!": "Match added!",
+    "URL is empty.": "URL is empty.",
+    "🔄 Fetch a Specific Year": "🔄 Fetch a Specific Year",
+    "Year:": "Year:",
+    "Fetch This Year's Matches": "Fetch This Year's Matches",
+    "Player": "Player",
+    "Database": "Database",
+    "No data yet. Press the 🔄 FETCH NEW MATCHES button in the sidebar.": "No data yet. Press the 🔄 FETCH NEW MATCHES button in the sidebar.",
+    "Total Matches": "Total Matches",
+    "Wins": "Wins",
+    "Losses": "Losses",
+    "Win %": "Win %",
+    "Raw Avg.": "Raw Avg.",
     "Adjusted": "Adjusted",
-    "180 / 100+": "180s / 100+",
-    "📊 Genel Bakış": "📊 Overview",
-    "📈 Gelişim": "📈 Progress",
-    "👥 Rakipler": "👥 Opponents",
+    "180s / 100+": "180s / 100+",
+    "📊 Overview": "📊 Overview",
+    "📈 Progress": "📈 Progress",
+    "👥 Opponents": "👥 Opponents",
     "🎯 Double Trouble": "🎯 Double Trouble",
-    "🏆 En İyi / En Kötü": "🏆 Best / Worst",
-    "📋 Maç Listesi": "📋 Match List",
+    "🏆 Best / Worst": "🏆 Best / Worst",
+    "📋 Match List": "📋 Match List",
     "🎯 Practice": "🎯 Practice",
-    "Tarih": "Date",
-    "Rakip": "Opponent",
-    "Sonuç": "Result",
-    "Rakip Ort.": "Opp. Avg.",
-    "Maç": "Match",
-    "Ortalama": "Average",
-    "✅ Kazandı": "✅ Won",
-    "❌ Kaybetti": "❌ Lost",
-    "Son 10 Maç": "Last 10 Matches",
-    "Atış Puanı Dağılımı": "Throw Score Distribution",
-    "Tüm Atışların Puan Dağılımı": "Score Distribution of All Throws",
-    "Puan": "Score",
-    "Frekans": "Frequency",
-    "Zaman İçinde Ortalama — Ham vs Adjusted": "Average Over Time — Raw vs Adjusted",
-    "Ham Ortalama Gelişimi": "Raw Average Progress",
-    "Adjusted Ortalama Gelişimi": "Adjusted Average Progress",
-    "Adjusted Ortalama": "Adjusted Average",
-    "Tur Bazlı Ortalama Performans": "Average Performance by Turn",
-    "Tur Numarasına Göre Ortalama Puan": "Average Score by Turn Number",
-    "Tur": "Turn",
-    "Ortalama Puan": "Average Score",
-    "Rakip Bazlı İstatistik": "Stats by Opponent",
-    "Rakip Bazlı Ortalamam": "My Average by Opponent",
-    "🎯 Double Deneme Analizi": "🎯 Double Attempt Analysis",
-    "Double denemesi: Leg içinde kalan puan ilk kez ≤ 40 olduğunda, o leg bitene kadar tüm turlar double denemesidir.": "Double attempt: Once remaining score first drops to ≤ 40 in a leg, all subsequent turns in that leg count as double attempts.",
-    "Toplam Double Denemesi": "Total Double Attempts",
-    "Başarısız Double": "Failed Doubles",
-    "Double Başarı %": "Double Success %",
-    "Maç Bazlı Double Deneme": "Double Attempts by Match",
-    "Double Deneme": "Double Attempts",
-    "Başarısız": "Failed",
-    "Fark": "Diff",
-    "Ham vs Adjusted Karşılaştırma": "Raw vs Adjusted Comparison",
-    "Maç Bazlı Ham vs Adjusted": "Raw vs Adjusted by Match",
-    "Ham": "Raw",
-    "Tip": "Type",
-    "🏆 En İyi 5 Maç (Ham Ortalamaya Göre)": "🏆 Top 5 Matches (by Raw Average)",
-    "💀 En Kötü 5 Maç (Ham Ortalamaya Göre)": "💀 Bottom 5 Matches (by Raw Average)",
-    "🏆 En İyi 5 Maç (Adjusted Ortalamaya Göre)": "🏆 Top 5 Matches (by Adjusted Average)",
-    "Tüm Maçlar": "All Matches",
-    "Sonuç:": "Result:",
-    "Rakip:": "Opponent:",
-    "Gösterilen": "Showing",
-    "maç": "matches",
-    "🎯 Maç Detayı": "🎯 Match Detail",
-    "Filtrelere uyan maç yok.": "No matches fit the filters.",
-    "Maç seç:": "Select match:",
-    "Bu maçın leg bilgisi yok.": "This match has no leg data.",
-    "Bu maç **{n} leg** içeriyor.": "This match has **{n} legs**.",
-    "Kazanan": "Winner",
-    "**{p}** — {n} tur": "**{p}** — {n} turns",
-    "Başlangıç": "Start",
-    "Atış": "Throw",
-    "Kalan": "Remaining",
+    "Date": "Date",
+    "Opponent": "Opponent",
+    "Result": "Result",
+    "Opp. Avg.": "Opp. Avg.",
+    "Match": "Match",
+    "Average": "Average",
+    "✅ Won": "✅ Won",
+    "❌ Lost": "❌ Lost",
+    "Last 10 Matches": "Last 10 Matches",
+    "Throw Score Distribution": "Throw Score Distribution",
+    "Score Distribution of All Throws": "Score Distribution of All Throws",
+    "Score": "Score",
+    "Frequency": "Frequency",
+    "Average Over Time — Raw vs Adjusted": "Average Over Time — Raw vs Adjusted",
+    "Raw Average Progress": "Raw Average Progress",
+    "Adjusted Average Progress": "Adjusted Average Progress",
+    "Adjusted Average": "Adjusted Average",
+    "Average Performance by Turn": "Average Performance by Turn",
+    "Average Score by Turn Number": "Average Score by Turn Number",
+    "Turn": "Turn",
+    "Average Score": "Average Score",
+    "Stats by Opponent": "Stats by Opponent",
+    "My Average by Opponent": "My Average by Opponent",
+    "🎯 Double Attempt Analysis": "🎯 Double Attempt Analysis",
+    "Double attempt: Once remaining score first drops to ≤ 40 in a leg, all subsequent turns in that leg count as double attempts.": "Double attempt: Once remaining score first drops to ≤ 40 in a leg, all subsequent turns in that leg count as double attempts.",
+    "Total Double Attempts": "Total Double Attempts",
+    "Failed Doubles": "Failed Doubles",
+    "Double Success %": "Double Success %",
+    "Double Attempts by Match": "Double Attempts by Match",
+    "Double Attempts": "Double Attempts",
+    "Failed": "Failed",
+    "Diff": "Diff",
+    "Raw vs Adjusted Comparison": "Raw vs Adjusted Comparison",
+    "Raw vs Adjusted by Match": "Raw vs Adjusted by Match",
+    "Raw": "Raw",
+    "Type": "Type",
+    "🏆 Top 5 Matches (by Raw Average)": "🏆 Top 5 Matches (by Raw Average)",
+    "💀 Bottom 5 Matches (by Raw Average)": "💀 Bottom 5 Matches (by Raw Average)",
+    "🏆 Top 5 Matches (by Adjusted Average)": "🏆 Top 5 Matches (by Adjusted Average)",
+    "All Matches": "All Matches",
+    "Result:": "Result:",
+    "Opponent:": "Opponent:",
+    "Showing": "Showing",
+    "matches": "matches",
+    "🎯 Match Detail": "🎯 Match Detail",
+    "No matches fit the filters.": "No matches fit the filters.",
+    "Select match:": "Select match:",
+    "This match has no leg data.": "This match has no leg data.",
+    "This match has **{n} legs**.": "This match has **{n} legs**.",
+    "Winner": "Winner",
+    "**{p}** — {n} turns": "**{p}** — {n} turns",
+    "Start": "Start",
+    "Throw": "Throw",
+    "Remaining": "Remaining",
 }
 
 
@@ -171,7 +172,7 @@ def t(s):
     return EN.get(s, s) if LANG == "EN" else s
 
 
-st.title(t("🎯 DartCounter Analiz Panosu"))
+st.title(t("🎯 DartCounter Analysis Dashboard"))
 
 
 def check_token():
@@ -201,22 +202,23 @@ def check_token():
 
 
 def show_token_help():
-    st.error(t("⚠️ DartCounter token'ı bulunamadı veya geçersiz."))
-    st.markdown(t("### 🔑 Token Nasıl Alınır?"))
-    st.markdown(t("**1.** Tarayıcıda DartCounter'a giriş yap: `https://app.dartcounter.net`"))
-    st.markdown(t("**2.** Herhangi bir maç sayfasını aç (Statistics → bir maç)"))
-    st.markdown(t("**3.** `F12` ile Developer Tools'u aç"))
-    st.markdown(t("**4.** **Network** sekmesine tıkla"))
-    st.markdown(t("**5.** **Fetch/XHR** filtresini seç"))
-    st.markdown(t("**6.** Sayfayı yenile (Cmd+R)"))
-    st.markdown(t("**7.** Listede `api.dartcounter.net` içeren bir istek bul"))
-    st.markdown(t("**8.** Sağ tıkla → Copy → Copy as cURL"))
-    st.markdown(t("**9.** `Bearer ` sonrası senin token'ındır"))
-    st.markdown(t("**10.** Proje klasöründeki `.env` dosyasına yaz: `DARTCOUNTER_TOKEN=37520203|AbCdEf...`"))
-    st.markdown(t("**11.** Kaydet ve sayfayı yenile."))
-    st.info(t("💡 Token'ı bir kere aldıktan sonra uzun süre kullanabilirsin."))
+    st.error(t("⚠️ DartCounter token not found or invalid."))
+    st.markdown(t("### 🔑 How to get the token"))
+    st.markdown(t("**1.** Log in to DartCounter in your browser: `https://app.dartcounter.net`"))
+    st.markdown(t("**2.** Open any match page (Statistics → a match)"))
+    st.markdown(t("**3.** Open Developer Tools with `F12`"))
+    st.markdown(t("**4.** Click the **Network** tab"))
+    st.markdown(t("**5.** Select the **Fetch/XHR** filter"))
+    st.markdown(t("**6.** Refresh the page (Cmd+R)"))
+    st.markdown(t("**7.** Find a request containing `api.dartcounter.net`"))
+    st.markdown(t("**8.** Right-click → Copy → Copy as cURL"))
+    st.markdown(t("**9.** The part after `Bearer ` is your token"))
+    st.markdown(t("**10.** Put it in the `.env` file in the project folder: `DARTCOUNTER_TOKEN=37520203|AbCdEf...`"))
+    st.markdown(t("**11.** Save and refresh the page."))
+    st.info(t("💡 Once you have the token you can use it for a long time."))
 
 
+@st.cache_data(ttl=300)
 def load_data():
     try:
         import dartcounter_api
@@ -242,8 +244,24 @@ def load_data():
             return pd.DataFrame(), pd.DataFrame(), pd.DataFrame()
 
 
+def clean_name(name):
+    """Strip the UUID suffix DartCounter appends to bot names, e.g. 'DartBot (6)-de0d…'."""
+    if name is None or (isinstance(name, float) and pd.isna(name)):
+        return None
+    return re.sub(r'-[0-9a-f]{8}-[0-9a-f-]{20,}$', '', str(name))
+
+
+def run_script(script, args, timeout):
+    """Run a helper script, failing clearly if it is missing from the project."""
+    if not Path(script).exists():
+        st.error(f"{t('Error')}: `{script}` not found in the project folder.")
+        return None
+    return subprocess.run([sys.executable, script, *args],
+                          capture_output=True, text=True, timeout=timeout)
+
+
 def make_label(date, opponent, n=12):
-    opp = re.sub(r'-[0-9a-f]{8}-[0-9a-f-]{20,}$', '', str(opponent))
+    opp = clean_name(opponent) or ""
     if len(opp) > n:
         opp = opp[:n - 1] + "…"
     return f"{str(date)[5:16]} {opp}"
@@ -268,31 +286,17 @@ def is_double_attempt(remaining_before):
 
 
 def mark_double_attempts(throws_df):
-    if throws_df.empty or 'leg_id' not in throws_df.columns:
+    if throws_df.empty or "leg_id" not in throws_df.columns:
         df = throws_df.copy()
-        df['is_dbl'] = df['remaining_before'].apply(is_double_attempt)
+        df["is_dbl"] = df["remaining_before"].apply(is_double_attempt)
         return df
 
-    df = throws_df.sort_values(['leg_id', 'turn']).reset_index(drop=True).copy()
-    df['is_dbl'] = False
-
-    for leg_id, leg_df in df.groupby('leg_id', sort=False):
-        double_started = False
-        for idx, row in leg_df.iterrows():
-            rb = row['remaining_before']
-            if rb is None or pd.isna(rb):
-                continue
-            try:
-                rb = int(rb)
-            except (ValueError, TypeError):
-                continue
-
-            if not double_started:
-                if (0 < rb <= 40) or rb == 50:
-                    double_started = True
-
-            if double_started:
-                df.at[idx, 'is_dbl'] = True
+    df = throws_df.sort_values(["leg_id", "turn"]).reset_index(drop=True).copy()
+    
+    # Optimize edilmiş vektörel yöntem
+    rb_numeric = pd.to_numeric(df["remaining_before"], errors="coerce")
+    trigger = ((rb_numeric > 0) & (rb_numeric <= 40)) | (rb_numeric == 50)
+    df["is_dbl"] = trigger.groupby(df["leg_id"]).cumsum() > 0
 
     return df
 
@@ -308,7 +312,10 @@ def adjusted_stats(throws_df):
     tdf = mark_double_attempts(throws_df)
 
     num_dbl = int(tdf['is_dbl'].sum())
-    num_failed = int(((tdf['is_dbl']) & (tdf['score_thrown'] == 0)).sum())
+    # A double attempt only succeeds when it checks out (remaining hits 0);
+    # setup shots like 32 -> 16 are not successes.
+    checked_out = pd.to_numeric(tdf['remaining_after'], errors='coerce') == 0
+    num_failed = int((tdf['is_dbl'] & ~checked_out).sum())
 
     filtered = tdf[~tdf['is_dbl']]
     if filtered.empty or filtered['darts_thrown'].sum() == 0:
@@ -323,23 +330,35 @@ def adjusted_stats(throws_df):
 # ============================================================
 with st.sidebar:
     if st.session_state.get("role") == "visitor":
-        with st.expander(t("🔑 Admin Girişi"), expanded=False):
-            name_input, auth_status, username_input = authenticator.login(
+        with st.expander(t("🔑 Admin Login"), expanded=False):
+            authenticator.login(
                 location="sidebar",
                 key="admin_login",
             )
+            
+            auth_status = st.session_state.get("authentication_status")
+            name_input = st.session_state.get("name")
+            username_input = st.session_state.get("username")
+            
             if auth_status:
                 st.session_state["role"] = credentials["usernames"][username_input].get("role", "user")
                 st.session_state["name"] = name_input
                 st.session_state["username"] = username_input
                 st.rerun()
             elif auth_status is False:
-                st.error(t("❌ Hatalı giriş"))
+                st.error(t("❌ Invalid login"))
     else:
         st.success(f"👤 {st.session_state.get('name', '')}")
-        if st.button(t("🚪 Admin Çıkışı"), use_container_width=True):
+        if st.button(t("🚪 Admin Logout"), use_container_width=True):
+            # Clear the authenticator's own state and cookie too; otherwise the
+            # next rerun sees authentication_status=True and logs straight back in.
+            try:
+                authenticator.logout(location="unrendered")
+            except Exception:
+                pass
+            st.session_state["authentication_status"] = None
             st.session_state["role"] = "visitor"
-            st.session_state["name"] = "Ziyaretçi"
+            st.session_state["name"] = "Visitor"
             st.session_state["username"] = None
             st.rerun()
 
@@ -347,104 +366,100 @@ with st.sidebar:
 
     token_ok, token_status = check_token()
     if not token_ok:
-        with st.expander(t("🔑 Token Nasıl Alınır?"), expanded=True):
+        with st.expander(t("🔑 How to get the token"), expanded=True):
             show_token_help()
         st.divider()
     else:
-        st.success(t("✅ Token aktif"))
+        st.success(t("✅ Token active"))
 
     if st.session_state.get("role") == "admin":
-        st.header(t("⚙️ İşlemler"))
+        st.header(t("⚙️ Actions"))
 
         if token_ok:
-            if st.button(t("🔄 YENİ MAÇLARI ÇEK"), use_container_width=True, type="primary"):
-                with st.spinner(f"{datetime.now().year} {t('maçları çekiliyor...')}"):
+            if st.button(t("🔄 FETCH NEW MATCHES"), use_container_width=True, type="primary"):
+                with st.spinner(f"{datetime.now().year} {t('matches are being fetched...')}"):
                     try:
-                        result = subprocess.run(
-                            [sys.executable, "list_all_matches.py", str(datetime.now().year)],
-                            capture_output=True, text=True, timeout=900
-                        )
-                        st.code(result.stdout[-2500:] if result.stdout else t("(çıktı yok)"))
-                        if result.returncode == 0:
-                            st.success(t("✅ Güncelleme tamamlandı!"))
-                            refresh_cache()
-                            st.rerun()
-                        else:
-                            st.error(t("❌ Hata oluştu"))
-                            if result.stderr:
-                                st.code(result.stderr[-1000:])
+                        result = run_script("list_all_matches.py", [str(datetime.now().year)], 900)
+                        if result is not None:
+                            st.code(result.stdout[-2500:] if result.stdout else t("(no output)"))
+                            if result.returncode == 0:
+                                st.success(t("✅ Update completed!"))
+                                refresh_cache()
+                                st.rerun()
+                            else:
+                                st.error(t("❌ An error occurred"))
+                                if result.stderr:
+                                    st.code(result.stderr[-1000:])
                     except Exception as e:
-                        st.error(f"{t('Hata')}: {e}")
+                        st.error(f"{t('Error')}: {e}")
             st.divider()
 
         practice_tab.sidebar_button(token_ok, t)
 
-        st.subheader(t("📥 URL ile Maç Ekle"))
+        st.subheader(t("📥 Add Match by URL"))
         url_input = st.text_input(
-            t("DartCounter maç URL'si:"),
+            t("DartCounter match URL:"),
             placeholder="https://app.dartcounter.net/statistics/match/games/...",
             key="url_input"
         )
-        if st.button(t("Bu Maçı Ekle"), use_container_width=True):
+        if st.button(t("Add This Match"), use_container_width=True):
             if not token_ok:
-                st.error(t("Önce token gerekli."))
+                st.error(t("A token is required first."))
             elif url_input.strip():
-                with st.spinner(t("İndiriliyor...")):
+                with st.spinner(t("Downloading...")):
                     try:
                         result = subprocess.run(
                             [sys.executable, "dartcounter_api.py", url_input.strip()],
                             capture_output=True, text=True, timeout=60
                         )
-                        st.code(result.stdout or t("(çıktı yok)"))
+                        st.code(result.stdout or t("(no output)"))
                         if result.returncode == 0 and "✅" in result.stdout:
-                            st.success(t("Maç eklendi!"))
+                            st.success(t("Match added!"))
                             refresh_cache()
                             st.rerun()
                         else:
-                            st.error(t("Hata oluştu"))
+                            st.error(t("An error occurred"))
                             if result.stderr:
                                 st.code(result.stderr[-1500:])
                     except Exception as e:
-                        st.error(f"{t('Hata')}: {e}")
+                        st.error(f"{t('Error')}: {e}")
             else:
-                st.warning(t("URL boş."))
+                st.warning(t("URL is empty."))
 
         st.divider()
-        st.subheader(t("🔄 Belirli Yılı Çek"))
-        year = st.number_input(t("Yıl:"), min_value=2020, max_value=2030,
+        st.subheader(t("🔄 Fetch a Specific Year"))
+        year = st.number_input(t("Year:"), min_value=2020, max_value=2030,
                                value=datetime.now().year, step=1)
-        if st.button(t("Bu Yılın Maçlarını Çek"), use_container_width=True):
+        if st.button(t("Fetch This Year's Matches"), use_container_width=True):
             if not token_ok:
-                st.error(t("Önce token gerekli."))
+                st.error(t("A token is required first."))
             else:
-                with st.spinner(f"{year} {t('maçları çekiliyor...')}"):
+                with st.spinner(f"{year} {t('matches are being fetched...')}"):
                     try:
-                        result = subprocess.run(
-                            [sys.executable, "list_all_matches.py", str(year)],
-                            capture_output=True, text=True, timeout=900
-                        )
-                        st.code(result.stdout[-4000:] if result.stdout else t("(çıktı yok)"))
-                        if result.returncode == 0:
-                            st.success(t("Güncelleme tamamlandı!"))
-                            refresh_cache()
-                            st.rerun()
-                        else:
-                            st.error(t("Hata"))
-                            if result.stderr:
-                                st.code(result.stderr[-1500:])
+                        result = run_script("list_all_matches.py", [str(year)], 900)
+                        if result is not None:
+                            st.code(result.stdout[-4000:] if result.stdout else t("(no output)"))
+                            if result.returncode == 0:
+                                st.success(t("Update completed!"))
+                                refresh_cache()
+                                st.rerun()
+                            else:
+                                st.error(t("Error"))
+                                if result.stderr:
+                                    st.code(result.stderr[-1500:])
                     except Exception as e:
-                        st.error(f"{t('Hata')}: {e}")
+                        st.error(f"{t('Error')}: {e}")
 
         st.divider()
 
-    st.caption(f"{t('Oyuncu')}: **{PLAYER}**")
-    st.caption(f"{t('Veritabanı')}: `{DB_PATH}`")
+    st.caption(f"{t('Player')}: **{PLAYER}**")
+    st.caption(f"{t('Database')}: `{DB_PATH}`")
 # ============================================================
 
 
 matches, throws, legs = load_data()
 if matches.empty:
-    st.warning(t("Henüz veri yok. Sidebar'dan 🔄 YENİ MAÇLARI ÇEK butonuna bas."))
+    st.warning(t("No data yet. Press the 🔄 FETCH NEW MATCHES button in the sidebar."))
     st.stop()
 
 efe_matches = matches[
@@ -457,7 +472,7 @@ def get_efe_result(row):
 
 
 def get_opponent(row):
-    return row['player2_name'] if row['player1_name'] == PLAYER else row['player1_name']
+    return clean_name(row['player2_name'] if row['player1_name'] == PLAYER else row['player1_name'])
 
 
 def get_opponent_avg(row):
@@ -501,78 +516,78 @@ adj_avg_all, adj_darts_all, total_dbl, total_failed, _ = adjusted_stats(efe_thro
 efe_180s = len(efe_throws[efe_throws['score_thrown'] == 180])
 efe_100s = len(efe_throws[efe_throws['score_thrown'] >= 100])
 
-RESULT_TXT = {'won': t('✅ Kazandı'), 'lost': t('❌ Kaybetti')}
+RESULT_TXT = {'won': t('✅ Won'), 'lost': t('❌ Lost')}
 RESULT_ICON = {'won': '✅', 'lost': '❌'}
-MAIN_COLS = [t('Tarih'), t('Rakip'), t('Sonuç'), t('Ham Ort.'), t('Adjusted'), t('Rakip Ort.')]
+MAIN_COLS = [t('Date'), t('Opponent'), t('Result'), t('Raw Avg.'), t('Adjusted'), t('Opp. Avg.')]
 RAW_COLS = ['date', 'opponent', 'result', 'avg', 'adjusted_avg', 'opp_avg']
 
 ui_helpers.metric_grid([
-    {"label": t("Toplam Maç"), "value": total_matches},
-    {"label": t("Galibiyet"), "value": wins},
-    {"label": t("Mağlubiyet"), "value": losses},
-    {"label": t("Kazanma %"), "value": f"{win_rate:.1f}%"},
-    {"label": t("Ham Ort."), "value": f"{overall_avg:.2f}"},
+    {"label": t("Total Matches"), "value": total_matches},
+    {"label": t("Wins"), "value": wins},
+    {"label": t("Losses"), "value": losses},
+    {"label": t("Win %"), "value": f"{win_rate:.1f}%"},
+    {"label": t("Raw Avg."), "value": f"{overall_avg:.2f}"},
     {"label": t("Adjusted"), "value": f"{adj_avg_all:.2f}",
-     "delta": f"+{adj_avg_all - overall_avg:.2f}"},
-    {"label": t("180 / 100+"), "value": f"{efe_180s} / {efe_100s}"},
+     "delta": f"{adj_avg_all - overall_avg:+.2f}"},
+    {"label": t("180s / 100+"), "value": f"{efe_180s} / {efe_100s}"},
 ], cols=7)
 
 st.divider()
 
 # ============================================================
-# ANA SEKMELER (Practice ilk sırada, Singles Training alt sekmede)
+# MAIN TABS
 # ============================================================
-tab1, tab2, tab3, tab4, tab5, tab6, tab7 = st.tabs([
-    t("🎯 Practice"), t("📊 Genel Bakış"), t("📈 Gelişim"),
-    t("👥 Rakipler"), t("🎯 Double Trouble"), t("🏆 En İyi / En Kötü"),
-    t("📋 Maç Listesi")
+tab1, tab2, tab3, tab4, tab5, tab6, tab7, tab8 = st.tabs([
+    t("🎯 Practice"), t("📊 Overview"), t("📈 Progress"),
+    t("👥 Opponents"), t("🎯 Double Trouble"), t("🏆 Best / Worst"),
+    t("📋 Match List"), t("🧠 Coaching & Analytics")
 ])
 
 with tab1:
     practice_tab.render(PLAYER, DB_PATH, t)
 
 with tab2:
-    st.subheader(t("Son 10 Maç"))
+    st.subheader(t("Last 10 Matches"))
     recent = efe_complete.head(10)[['date', 'opponent', 'result', 'avg', 'opp_avg']].copy()
     recent['result'] = recent['result'].map(RESULT_TXT)
-    recent.columns = [t('Tarih'), t('Rakip'), t('Sonuç'), t('Ham Ort.'), t('Rakip Ort.')]
+    recent.columns = [t('Date'), t('Opponent'), t('Result'), t('Raw Avg.'), t('Opp. Avg.')]
     st.dataframe(recent, use_container_width=True, hide_index=True)
-    st.subheader(t("Atış Puanı Dağılımı"))
+    st.subheader(t("Throw Score Distribution"))
     fig = px.histogram(efe_throws, x='score_thrown', nbins=30,
-                       title=t("Tüm Atışların Puan Dağılımı"),
-                       labels={'score_thrown': t('Puan'), 'count': t('Frekans')},
+                       title=t("Score Distribution of All Throws"),
+                       labels={'score_thrown': t('Score'), 'count': t('Frequency')},
                        color_discrete_sequence=['#ff6b35'])
     st.plotly_chart(fig, use_container_width=True)
 
 with tab3:
-    st.subheader(t("Zaman İçinde Ortalama — Ham vs Adjusted"))
+    st.subheader(t("Average Over Time — Raw vs Adjusted"))
     efe_sorted = efe_complete.sort_values('date').copy()
     efe_sorted['label'] = efe_sorted.apply(
         lambda r: make_label(r['date'], r['opponent']), axis=1)
     if not efe_sorted.empty:
         fig = px.line(efe_sorted, x='label', y='avg', markers=True,
-                      title=f"{PLAYER} — {t('Ham Ortalama Gelişimi')}",
-                      labels={'label': t('Maç'), 'avg': t('Ortalama')})
+                      title=f"{PLAYER} — {t('Raw Average Progress')}",
+                      labels={'label': t('Match'), 'avg': t('Average')})
         fig.update_traces(line_color='#ff6b35', marker=dict(size=10))
         fig.update_xaxes(tickangle=-90)
         st.plotly_chart(fig, use_container_width=True)
         fig2 = px.line(efe_sorted, x='label', y='adjusted_avg', markers=True,
-                       title=f"{PLAYER} — {t('Adjusted Ortalama Gelişimi')}",
-                       labels={'label': t('Maç'), 'adjusted_avg': t('Adjusted Ortalama')})
+                       title=f"{PLAYER} — {t('Adjusted Average Progress')}",
+                       labels={'label': t('Match'), 'adjusted_avg': t('Adjusted Average')})
         fig2.update_traces(line_color='#4ecdc4', marker=dict(size=10))
         fig2.update_xaxes(tickangle=-90)
         st.plotly_chart(fig2, use_container_width=True)
-    st.subheader(t("Tur Bazlı Ortalama Performans"))
+    st.subheader(t("Average Performance by Turn"))
     turn_avg = efe_throws.groupby('turn')['score_thrown'].mean().reset_index()
     turn_avg['score_thrown'] = turn_avg['score_thrown'].round(2)
     fig3 = px.bar(turn_avg, x='turn', y='score_thrown',
-                  title=t("Tur Numarasına Göre Ortalama Puan"),
-                  labels={'turn': t('Tur'), 'score_thrown': t('Ortalama Puan')},
+                  title=t("Average Score by Turn Number"),
+                  labels={'turn': t('Turn'), 'score_thrown': t('Average Score')},
                   color='score_thrown', color_continuous_scale='Oranges')
     st.plotly_chart(fig3, use_container_width=True)
 
 with tab4:
-    st.subheader(t("Rakip Bazlı İstatistik"))
+    st.subheader(t("Stats by Opponent"))
     opp_stats = efe_complete.groupby('opponent').agg(
         Mac=('match_id', 'count'),
         Galibiyet=('result', lambda x: (x == 'won').sum()),
@@ -587,74 +602,74 @@ with tab4:
     opp_stats['Rakip_Ort'] = opp_stats['Rakip_Ort'].round(2)
     opp_stats = opp_stats.sort_values('Mac', ascending=False)
     opp_display = opp_stats.rename(columns={
-        'opponent': t('Rakip'), 'Mac': t('Maç'), 'Galibiyet': t('Galibiyet'),
-        'Maglubiyet': t('Mağlubiyet'), 'Ham_Ort': t('Ham Ort.'),
-        'Adjusted': t('Adjusted'), 'Rakip_Ort': t('Rakip Ort.'),
-        'Kazanma_Yuzde': t('Kazanma %')})
+        'opponent': t('Opponent'), 'Mac': t('Match'), 'Galibiyet': t('Wins'),
+        'Maglubiyet': t('Losses'), 'Ham_Ort': t('Raw Avg.'),
+        'Adjusted': t('Adjusted'), 'Rakip_Ort': t('Opp. Avg.'),
+        'Kazanma_Yuzde': t('Win %')})
     st.dataframe(opp_display, use_container_width=True, hide_index=True)
-    st.subheader(t("Rakip Bazlı Ortalamam"))
+    st.subheader(t("My Average by Opponent"))
     fig = px.bar(opp_stats, x='opponent', y='Ham_Ort',
                  color='Ham_Ort', color_continuous_scale='Oranges',
-                 text='Ham_Ort', labels={'opponent': t('Rakip'), 'Ham_Ort': t('Ortalama')})
+                 text='Ham_Ort', labels={'opponent': t('Opponent'), 'Ham_Ort': t('Average')})
     fig.update_traces(texttemplate='%{text:.2f}', textposition='outside')
     st.plotly_chart(fig, use_container_width=True)
 
 with tab5:
-    st.subheader(t("🎯 Double Deneme Analizi"))
-    st.caption(t("Double denemesi: Leg içinde kalan puan ilk kez ≤ 40 olduğunda, o leg bitene kadar tüm turlar double denemesidir."))
+    st.subheader(t("🎯 Double Attempt Analysis"))
+    st.caption(t("Double attempt: Once remaining score first drops to ≤ 40 in a leg, all subsequent turns in that leg count as double attempts."))
     col1, col2, col3 = st.columns(3)
-    col1.metric(t("Toplam Double Denemesi"), int(total_dbl))
-    col2.metric(t("Başarısız Double"), int(total_failed))
+    col1.metric(t("Total Double Attempts"), int(total_dbl))
+    col2.metric(t("Failed Doubles"), int(total_failed))
     success_rate = ((total_dbl - total_failed) / total_dbl * 100) if total_dbl > 0 else 0
-    col3.metric(t("Double Başarı %"), f"{success_rate:.1f}%")
-    st.subheader(t("Maç Bazlı Double Deneme"))
+    col3.metric(t("Double Success %"), f"{success_rate:.1f}%")
+    st.subheader(t("Double Attempts by Match"))
     dbl_df = efe_complete[['date', 'opponent', 'avg', 'adjusted_avg',
                             'num_double_attempts', 'num_failed_doubles', 'result']].copy()
     dbl_df['fark'] = (dbl_df['adjusted_avg'] - dbl_df['avg']).round(2)
     dbl_df['result'] = dbl_df['result'].map(RESULT_ICON)
-    dbl_df.columns = [t('Tarih'), t('Rakip'), t('Ham Ort.'), t('Adjusted'),
-                      t('Double Deneme'), t('Başarısız'), t('Sonuç'), t('Fark')]
+    dbl_df.columns = [t('Date'), t('Opponent'), t('Raw Avg.'), t('Adjusted'),
+                      t('Double Attempts'), t('Failed'), t('Result'), t('Diff')]
     st.dataframe(dbl_df, use_container_width=True, hide_index=True)
-    st.subheader(t("Ham vs Adjusted Karşılaştırma"))
+    st.subheader(t("Raw vs Adjusted Comparison"))
     comp_df = efe_complete[['date', 'opponent', 'avg', 'adjusted_avg']].copy()
     comp_df['label'] = comp_df.apply(
         lambda r: make_label(r['date'], r['opponent']), axis=1)
     comp_df = comp_df.melt(id_vars=['label'], value_vars=['avg', 'adjusted_avg'],
                            var_name='Tip', value_name='Ortalama')
-    comp_df['Tip'] = comp_df['Tip'].map({'avg': t('Ham'), 'adjusted_avg': t('Adjusted')})
+    comp_df['Tip'] = comp_df['Tip'].map({'avg': t('Raw'), 'adjusted_avg': t('Adjusted')})
     fig = px.bar(comp_df, x='label', y='Ortalama', color='Tip', barmode='group',
-                 title=t("Maç Bazlı Ham vs Adjusted"),
-                 labels={'label': t('Maç'), 'Ortalama': t('Ortalama'), 'Tip': t('Tip')})
+                 title=t("Raw vs Adjusted by Match"),
+                 labels={'label': t('Match'), 'Ortalama': t('Average'), 'Tip': t('Type')})
     fig.update_xaxes(tickangle=-90)
     st.plotly_chart(fig, use_container_width=True)
 
 with tab6:
-    st.subheader(t("🏆 En İyi 5 Maç (Ham Ortalamaya Göre)"))
+    st.subheader(t("🏆 Top 5 Matches (by Raw Average)"))
     best = efe_complete.nlargest(5, 'avg')[RAW_COLS].copy()
     best['result'] = best['result'].map(RESULT_ICON)
     best.columns = MAIN_COLS
     st.dataframe(best, use_container_width=True, hide_index=True)
-    st.subheader(t("💀 En Kötü 5 Maç (Ham Ortalamaya Göre)"))
+    st.subheader(t("💀 Bottom 5 Matches (by Raw Average)"))
     worst = efe_complete.nsmallest(5, 'avg')[RAW_COLS].copy()
     worst['result'] = worst['result'].map(RESULT_ICON)
     worst.columns = MAIN_COLS
     st.dataframe(worst, use_container_width=True, hide_index=True)
-    st.subheader(t("🏆 En İyi 5 Maç (Adjusted Ortalamaya Göre)"))
+    st.subheader(t("🏆 Top 5 Matches (by Adjusted Average)"))
     best_adj = efe_complete.nlargest(5, 'adjusted_avg')[RAW_COLS].copy()
     best_adj['result'] = best_adj['result'].map(RESULT_ICON)
     best_adj.columns = MAIN_COLS
     st.dataframe(best_adj, use_container_width=True, hide_index=True)
 
 with tab7:
-    st.subheader(f"{t('Tüm Maçlar')} ({len(efe_complete)})")
+    st.subheader(f"{t('All Matches')} ({len(efe_complete)})")
     col1, col2 = st.columns(2)
     with col1:
-        result_filter = st.multiselect(t("Sonuç:"), options=['won', 'lost'],
+        result_filter = st.multiselect(t("Result:"), options=['won', 'lost'],
                                        default=['won', 'lost'],
                                        format_func=lambda x: RESULT_TXT[x])
     with col2:
         all_opponents = sorted(efe_complete['opponent'].unique())
-        opponent_filter = st.multiselect(t("Rakip:"), all_opponents, default=all_opponents)
+        opponent_filter = st.multiselect(t("Opponent:"), all_opponents, default=all_opponents)
     filtered = efe_complete[
         (efe_complete['result'].isin(result_filter)) &
         (efe_complete['opponent'].isin(opponent_filter))
@@ -666,27 +681,27 @@ with tab7:
     display_df['opp_avg'] = display_df['opp_avg'].round(2)
     display_df.columns = MAIN_COLS
     st.dataframe(display_df, use_container_width=True, hide_index=True)
-    st.caption(f"{t('Gösterilen')}: {len(filtered)} {t('maç')}")
+    st.caption(f"{t('Showing')}: {len(filtered)} {t('matches')}")
     st.divider()
-    st.subheader(t("🎯 Maç Detayı"))
+    st.subheader(t("🎯 Match Detail"))
     match_options = filtered.apply(lambda r: f"{r['date']} — vs {r['opponent']}", axis=1).tolist()
     if not match_options:
-        st.info(t("Filtrelere uyan maç yok."))
+        st.info(t("No matches fit the filters."))
     else:
-        selected = st.selectbox(t("Maç seç:"), match_options)
+        selected = st.selectbox(t("Select match:"), match_options)
         idx = match_options.index(selected)
         selected_match_id = filtered.iloc[idx]['match_id']
         match_legs = legs[legs['match_id'] == selected_match_id].sort_values('leg_no')
         num_legs = len(match_legs)
         if num_legs == 0:
-            st.warning(t("Bu maçın leg bilgisi yok."))
+            st.warning(t("This match has no leg data."))
         else:
-            st.caption(t("Bu maç **{n} leg** içeriyor.").format(n=num_legs))
+            st.caption(t("This match has **{n} legs**.").format(n=num_legs))
             for _, leg_row in match_legs.iterrows():
                 leg_id = leg_row['leg_id']
                 leg_no = leg_row['leg_no']
-                winner = leg_row['winner_name'] or "?"
-                st.markdown(f"### Leg {leg_no} — {t('Kazanan')}: **{winner}**")
+                winner = clean_name(leg_row['winner_name']) or "?"
+                st.markdown(f"### Leg {leg_no} — {t('Winner')}: **{winner}**")
                 leg_throws = throws[throws['leg_id'] == leg_id].copy()
                 leg_throws = leg_throws.sort_values(['player_name', 'turn'])
                 players_in_leg = [PLAYER] + [
@@ -698,17 +713,20 @@ with tab7:
                         if p_throws.empty:
                             continue
                         with cols[i]:
-                            st.write(t("**{p}** — {n} tur").format(p=player, n=len(p_throws)))
+                            st.write(t("**{p}** — {n} turns").format(p=clean_name(player), n=len(p_throws)))
                             p_marked = mark_double_attempts(p_throws)
                             p_marked['Dbl'] = p_marked['is_dbl'].apply(
                                 lambda x: '🎯' if x else '')
                             p_display = p_marked[
                                 ['turn', 'remaining_before', 'score_thrown', 'remaining_after', 'Dbl']].copy()
-                            p_display.columns = [t('Tur'), t('Başlangıç'), t('Atış'), t('Kalan'), '🎯']
+                            p_display.columns = [t('Turn'), t('Start'), t('Throw'), t('Remaining'), '🎯']
                             st.dataframe(p_display, use_container_width=True,
                                          hide_index=True, height=400)
                 else:
                     p_display = leg_throws[
                         ['player_name', 'turn', 'remaining_before', 'score_thrown', 'remaining_after']].copy()
-                    p_display.columns = [t('Oyuncu'), t('Tur'), t('Başlangıç'), t('Atış'), t('Kalan')]
+                    p_display.columns = [t('Player'), t('Turn'), t('Start'), t('Throw'), t('Remaining')]
                     st.dataframe(p_display, use_container_width=True, hide_index=True)
+
+with tab8:
+    coaching_page.render_coaching_page(PLAYER, t)

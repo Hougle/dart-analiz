@@ -24,3 +24,8 @@ Thumbs.db
 
 # Screenshots (opsiyonel - istersen kaldırabilirsin)
 screenshots/
+
+
+# Streamlit secrets - never commit
+secrets.toml
+.streamlit/secrets.toml

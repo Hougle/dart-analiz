@@ -333,6 +333,23 @@ def safe_int(v):
         return None
 
 
+def _delete_match(conn, match_id):
+    """Remove every row of one match (used to undo a failed, partial import)."""
+    stmts = ["DELETE FROM throws WHERE match_id=?", "DELETE FROM legs WHERE match_id=?",
+             "DELETE FROM matches WHERE match_id=?"]
+    try:
+        if _turso_available():
+            for s in stmts:
+                turso_execute(s, [match_id])
+        else:
+            conn.rollback()
+            for s in stmts:
+                conn.execute(s, (match_id,))
+            conn.commit()
+    except Exception as e:
+        print(f"  ⚠  Could not clean up partial match {match_id[:8]}: {e}")
+
+
 def save_match(conn, data):
     match_id = data["id"]
 
@@ -398,85 +415,90 @@ def save_match(conn, data):
         p1_180s, p2_180s, "api",
     )
 
-    if _turso_available():
-        turso_execute(insert_sql, list(args))
-    else:
-        conn.execute(insert_sql, args)
-
-    legs = data.get("legs", [])
-    leg_no = 0
-    for leg in legs:
-        leg_no += 1
-        leg_id = leg["leg_id"]
-        winner_muid = leg.get("winner_match_user_id")
-
-        winner_name = None
-        for lu in leg.get("users", []):
-            if lu.get("match_user_id") == winner_muid:
-                for u in users:
-                    if u.get("user_id") == lu.get("user_id"):
-                        winner_name = u.get("player_name")
-                        break
-                break
-
-        leg_sql = "INSERT INTO legs (leg_id, match_id, leg_no, winner_name, winner_match_user_id) VALUES (?, ?, ?, ?, ?)"
-        leg_args = [leg_id, match_id, leg_no, winner_name, winner_muid]
-
+    try:
         if _turso_available():
-            turso_execute(leg_sql, leg_args)
+            turso_execute(insert_sql, list(args))
         else:
-            conn.execute(leg_sql, leg_args)
+            conn.execute(insert_sql, args)
 
-        for leg_user in leg.get("users", []):
-            uid = leg_user.get("user_id")
-            p_name = None
-            for u in users:
-                if u.get("user_id") == uid:
-                    p_name = u.get("player_name")
+        legs = data.get("legs", [])
+        leg_no = 0
+        for leg in legs:
+            leg_no += 1
+            leg_id = leg["leg_id"]
+            winner_muid = leg.get("winner_match_user_id")
+
+            winner_name = None
+            for lu in leg.get("users", []):
+                if lu.get("match_user_id") == winner_muid:
+                    for u in users:
+                        if u.get("user_id") == lu.get("user_id"):
+                            winner_name = u.get("player_name")
+                            break
                     break
-            p_name = p_name or f"P{uid}"
 
-            turns = leg_user.get("turns", [])
-            for turn_no, turn in enumerate(turns, start=1):
-                score = turn.get("total_score") or 0
-                remaining_after = turn.get("remaining_score")
-                darts = turn.get("darts_thrown") or 3
+            leg_sql = "INSERT INTO legs (leg_id, match_id, leg_no, winner_name, winner_match_user_id) VALUES (?, ?, ?, ?, ?)"
+            leg_args = [leg_id, match_id, leg_no, winner_name, winner_muid]
 
-                if turn_no == 1:
-                    remaining_before = start_score
-                else:
-                    prev = turns[turn_no - 2].get("remaining_score")
-                    remaining_before = prev if prev is not None else start_score
+            if _turso_available():
+                turso_execute(leg_sql, leg_args)
+            else:
+                conn.execute(leg_sql, leg_args)
 
-                if score == 180:
-                    if uid == p1_uid:
-                        p1_180s += 1
+            for leg_user in leg.get("users", []):
+                uid = leg_user.get("user_id")
+                p_name = None
+                for u in users:
+                    if u.get("user_id") == uid:
+                        p_name = u.get("player_name")
+                        break
+                p_name = p_name or f"P{uid}"
+
+                turns = leg_user.get("turns", [])
+                for turn_no, turn in enumerate(turns, start=1):
+                    score = turn.get("total_score") or 0
+                    remaining_after = turn.get("remaining_score")
+                    darts = turn.get("darts_thrown") or 3
+
+                    if turn_no == 1:
+                        remaining_before = start_score
                     else:
-                        p2_180s += 1
+                        prev = turns[turn_no - 2].get("remaining_score")
+                        remaining_before = prev if prev is not None else start_score
 
-                throw_sql = """INSERT INTO throws
-                             (throw_id, leg_id, match_id, turn, player_name,
-                              player_user_id, remaining_before, score_thrown,
-                              remaining_after, darts_thrown)
-                             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"""
-                throw_args = [
-                    turn.get("turn_id", f"{leg_id}_{uid}_{turn_no}"),
-                    leg_id, match_id, turn_no, p_name, uid,
-                    remaining_before, score, remaining_after, darts,
-                ]
+                    if score == 180:
+                        if safe_int(uid) == p1_uid:
+                            p1_180s += 1
+                        else:
+                            p2_180s += 1
 
-                if _turso_available():
-                    turso_execute(throw_sql, throw_args)
-                else:
-                    conn.execute(throw_sql, throw_args)
+                    throw_sql = """INSERT INTO throws
+                                 (throw_id, leg_id, match_id, turn, player_name,
+                                  player_user_id, remaining_before, score_thrown,
+                                  remaining_after, darts_thrown)
+                                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"""
+                    throw_args = [
+                        turn.get("turn_id", f"{leg_id}_{uid}_{turn_no}"),
+                        leg_id, match_id, turn_no, p_name, uid,
+                        remaining_before, score, remaining_after, darts,
+                    ]
 
-    update_sql = "UPDATE matches SET p1_180s=?, p2_180s=? WHERE match_id=?"
-    update_args = [p1_180s, p2_180s, match_id]
-    if _turso_available():
-        turso_execute(update_sql, update_args)
-    else:
-        conn.execute(update_sql, update_args)
-        conn.commit()
+                    if _turso_available():
+                        turso_execute(throw_sql, throw_args)
+                    else:
+                        conn.execute(throw_sql, throw_args)
+
+        update_sql = "UPDATE matches SET p1_180s=?, p2_180s=? WHERE match_id=?"
+        update_args = [p1_180s, p2_180s, match_id]
+        if _turso_available():
+            turso_execute(update_sql, update_args)
+        else:
+            conn.execute(update_sql, update_args)
+            conn.commit()
+    except Exception:
+        # Don't leave a half-saved match behind: match_exists() would then skip it forever.
+        _delete_match(conn, match_id)
+        raise
 
     print(f"  ✅ {p1_name} vs {p2_name} | Sonuç: {p1_result}")
     return True
