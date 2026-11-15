@@ -9,6 +9,8 @@ from pathlib import Path
 import pandas as pd
 import sqlite3
 import plotly.express as px
+import plotly.graph_objects as go
+import ui_helpers
 from singles_tab import render_singles_tab
 from dartcounter_api import DB_PATH, _turso_available, turso_query
 
@@ -134,111 +136,54 @@ def render(player_name, db_path, t_func):
 
             std_dev, bounce_back, decay = calculate_score_metrics(df_p_turns)
             
+            C = ui_helpers.colors()
             col1, col2, col3 = st.columns(3)
-            with col1:
-                if std_dev is not None:
-                    st.metric(
-                        "📊 Rhythm Fluctuation (Std Dev)",
-                        f"±{std_dev:.1f} Pts",
-                        delta="Low = Stable" if std_dev < 25 else "High Fluctuation",
-                        delta_color="normal" if std_dev < 25 else "inverse"
-                    )
-                else:
-                    st.metric("📊 Rhythm Fluctuation", "No Data")
-
-            with col2:
-                if bounce_back is not None:
-                    st.metric(
-                        "🧠 Bounce-Back Rate",
-                        f"%{bounce_back:.1f}",
-                        delta="Post-Pressure Reaction"
-                    )
-                else:
-                    st.metric("🧠 Bounce-Back Rate", "No Data")
-
-            with col3:
-                if decay is not None:
-                    st.metric(
-                        "⚡ Fatigue Curve (Decay)",
-                        f"{decay:+.1f}%",
-                        delta="Late-Set Performance",
-                        delta_color="normal" if decay >= 0 else "inverse"
-                    )
-                else:
-                    st.metric("⚡ Fatigue Curve", "No Data")
+            col1.metric("📊 Rhythm Fluctuation (Std Dev)",
+                        f"±{std_dev:.1f} pts" if std_dev is not None else "No Data",
+                        help="Standard deviation of turn scores. Lower = steadier; under 25 is stable.")
+            col2.metric("🧠 Bounce-Back Rate",
+                        ui_helpers.pct(bounce_back) if bounce_back is not None else "No Data",
+                        help="After a turn of 40 or less, how often the next turn (same session) "
+                             "reaches your average turn score.")
+            col3.metric("⚡ Fatigue Curve (Decay)",
+                        f"{decay:+.1f}%" if decay is not None else "No Data",
+                        help="Last 3 turns vs first 3 turns of each session. Negative = you drop off late.")
 
             st.markdown("---")
 
-            df_daily = df.groupby("Date", sort=False).agg({"avg_3dart": "mean"}).reset_index()
-            df_daily["avg_3dart_round"] = df_daily["avg_3dart"].round(2)
-
-            fig_daily = px.line(
-                df_daily,
-                x="Date",
-                y="avg_3dart_round",
-                markers=True,
-                title="📈 Daily 3-Dart Score Trend & Rhythm Line",
-                labels={"Date": "", "avg_3dart_round": "3-Dart Avg."}
-            )
-            fig_daily.update_traces(
-                line=dict(color="#4ecdc4", width=3),
-                marker=dict(size=8, color="#4ecdc4", line=dict(width=2, color="#ffffff")),
-                fill="tozeroy",
-                fillcolor="rgba(78, 205, 196, 0.08)",
-                hovertemplate="<b>Date: %{x}</b><br>Average: %{y}<extra></extra>"
-            )
-            
-            min_y = max(0, df_daily["avg_3dart_round"].min() - 5)
-            max_y = df_daily["avg_3dart_round"].max() + 5
-
-            fig_daily.update_layout(
-                template="plotly_dark",
-                paper_bgcolor="rgba(0,0,0,0)",
-                plot_bgcolor="rgba(0,0,0,0)",
-                height=320,
-                margin=dict(t=40, b=20, l=10, r=10),
-                xaxis=dict(showgrid=False, title=""),
-                yaxis=dict(showgrid=True, gridcolor="rgba(255,255,255,0.05)", range=[min_y, max_y], title="3-Dart Avg.")
-            )
-            st.plotly_chart(fig_daily, use_container_width=True)
+            # Each session as a dot on a real time axis, plus a rolling trend line.
+            if "datetime" in df.columns:
+                sess = df.dropna(subset=["avg_3dart"]).sort_values("datetime")
+                fig_trend = go.Figure()
+                fig_trend.add_trace(go.Scatter(
+                    x=sess["datetime"], y=sess["avg_3dart"], mode="markers", name="Session",
+                    marker=dict(color=C["alt"], size=8, opacity=0.6),
+                    hovertemplate="%{x|%d.%m %H:%M}<br>3-dart avg: %{y:.1f}<extra></extra>"))
+                fig_trend.add_trace(go.Scatter(
+                    x=sess["datetime"], y=ui_helpers.rolling_trend(sess["datetime"], sess["avg_3dart"]),
+                    mode="lines", name="5-session average",
+                    line=dict(color=C["you"], width=2.5),
+                    hovertemplate="5-session avg: %{y:.1f}<extra></extra>"))
+                fig_trend.update_layout(title="📈 3-Dart Average per Session",
+                                        yaxis_title="3-dart average", xaxis_title="")
+                ui_helpers.chart(fig_trend, key="score_trend")
 
             st.markdown("---")
 
             if not df_p_turns.empty and "score" in df_p_turns.columns:
-                bins = [-1, 20, 40, 60, 80, 100, 140, 180]
-                labels = ['0-20 (Miss)', '21-40 (Weak)', '41-60 (Standard)', '61-80 (Good)', '81-100 (Very Good)', '101-140 (High)', '141-180 (Maximum)']
-                
-                df_turns = df_p_turns.copy()
-                df_turns['Score_Range'] = pd.cut(df_turns['score'], bins=bins, labels=labels)
-                dist_df = df_turns['Score_Range'].value_counts().reindex(labels).reset_index()
-                dist_df.columns = ['Range', 'Count']
-
-                fig_dist = px.bar(
-                    dist_df,
-                    x='Range',
-                    y='Count',
-                    title="🎯 Throw Score Distribution (Error & Success Profile Analysis)",
-                    labels={'Range': 'Score Range', 'Count': 'Throw Count'},
-                    text='Count'
-                )
-                fig_dist.update_traces(
-                    marker_color="#ffe66d",
-                    marker_line_color="#fff2b2",
-                    marker_line_width=1,
-                    opacity=0.9,
-                    textposition="outside",
-                    hovertemplate="<b>Range: %{x}</b><br>Count: %{y}<extra></extra>"
-                )
-                fig_dist.update_layout(
-                    template="plotly_dark",
-                    paper_bgcolor="rgba(0,0,0,0)",
-                    plot_bgcolor="rgba(0,0,0,0)",
-                    height=320,
-                    margin=dict(t=40, b=20, l=10, r=10),
-                    xaxis=dict(showgrid=False, title="Score Range"),
-                    yaxis=dict(showgrid=True, gridcolor="rgba(255,255,255,0.05)", title="Count")
-                )
-                st.plotly_chart(fig_dist, use_container_width=True)
+                bands = ui_helpers.score_bands(df_p_turns["score"])
+                dist_df = bands.value_counts().reindex(ui_helpers.SCORE_BAND_LABELS, fill_value=0).reset_index()
+                dist_df.columns = ["Range", "Count"]
+                fig_dist = go.Figure(go.Bar(
+                    x=dist_df["Range"], y=dist_df["Count"], marker=dict(color=C["alt"], cornerradius=4),
+                    text=dist_df["Count"], textposition="outside", textfont=dict(color=C["text"]),
+                    hovertemplate="%{x}: %{y} turns<extra></extra>"))
+                fig_dist.update_layout(title="🎯 Turn Score Distribution (20-point bands)",
+                                       xaxis_title="Score per turn", yaxis_title="Turns")
+                ui_helpers.chart(fig_dist, key="score_dist")
+                s = pd.to_numeric(df_p_turns["score"], errors="coerce")
+                st.caption(f"100+: {int((s >= 100).sum())} · 140+: {int((s >= 140).sum())} · "
+                           f"180: {int((s == 180).sum())} · of {int(s.notna().sum())} turns")
 
             st.markdown("---")
 
@@ -284,14 +229,15 @@ def render(player_name, db_path, t_func):
             if df_a_filtered.empty:
                 st.info(f"No training data found in mode '{selected_mode}'.")
             else:
+                C = ui_helpers.colors()
                 avg_hit = df_a_filtered["hit_rate"].mean() if "hit_rate" in df_a_filtered.columns else 0
                 avg_darts = df_a_filtered["darts_thrown"].mean() if "darts_thrown" in df_a_filtered.columns else 0
 
-                c1, c2 = st.columns(2)
-                with c1:
-                    st.metric("🎯 Average Hit Rate", f"%{avg_hit:.1f}")
-                with c2:
-                    st.metric("🏹 Avg. Darts Spent Per Game", f"{avg_darts:.1f} Darts")
+                c1, c2, c3 = st.columns(3)
+                c1.metric("🎯 Average Hit Rate", ui_helpers.pct(avg_hit),
+                          help="Darts that hit the current target, divided by darts thrown.")
+                c2.metric("🏹 Avg. Darts Spent Per Game", f"{avg_darts:.1f}")
+                c3.metric("📅 Sessions", len(df_a_filtered))
 
                 st.markdown("---")
 
@@ -302,86 +248,49 @@ def render(player_name, db_path, t_func):
                     targets = targets[targets["atc_user_id"].isin(df_a_filtered["atc_user_id"])]
 
                 if targets.empty or "target" not in targets.columns or darts_col is None:
-                    st.info("No per-target data for these sessions yet, so the bottleneck chart is not available.")
-                    target_stats = None
+                    st.info("No per-target data for these sessions yet, so the segment charts are not available.")
                 else:
-                    target_stats = targets.groupby("target")[darts_col].mean().reset_index()
-                    target_stats.columns = ["Target_Segment", "Avg_Darts"]
-                    target_stats["Target_Segment"] = target_stats["Target_Segment"].astype(str).replace({"25": "Bull"})
+                    seg = targets.assign(hits=1, attempts=pd.to_numeric(targets[darts_col], errors="coerce"))
+                    seg = seg.groupby("target")[["hits", "attempts"]].sum().reset_index()
+                    seg["target"] = seg["target"].astype(int)
+                    seg["value"] = seg["hits"] / seg["attempts"]
+                    prefix = {"double": "D", "treble": "T"}.get(selected_mode, "")
 
-                if target_stats is not None:
-                    def sort_key(val):
-                        s = str(val).strip()
-                        if s.isdigit():
-                            return (0, int(s))
-                        return (1, s)
+                    rated = seg[seg["attempts"] >= 5]
+                    worst = rated.nsmallest(3, "value")
+                    if not worst.empty:
+                        names = ", ".join(
+                            f"**{prefix}{'Bull' if r['target'] == 25 else int(r['target'])}** "
+                            f"({r['attempts'] / r['hits']:.1f} darts per hit)" for _, r in worst.iterrows())
+                        st.warning(f"⚠️ **Bottleneck:** hardest targets in this selection: {names}")
 
-                    target_stats["sort_col"] = target_stats["Target_Segment"].apply(sort_key)
-                    target_stats = target_stats.sort_values(by="sort_col").drop(columns=["sort_col"])
-
-                    worst_3 = target_stats.sort_values(by="Avg_Darts", ascending=False).head(3)
-                    worst_list = ", ".join([f"**Segment {row['Target_Segment']}** ({row['Avg_Darts']:.1f} darts)" for _, row in worst_3.iterrows()])
-
-                    st.warning(f"⚠️ **Bottleneck Detection:** Top 3 targets requiring the most darts: {worst_list}")
-
-                    fig_targets = px.bar(
-                        target_stats,
-                        x="Target_Segment",
-                        y="Avg_Darts",
-                        title="🎯 Avg. Darts Spent Per Segment",
-                        labels={"Target_Segment": "Target Segment", "Avg_Darts": "Avg. Darts"},
-                        text="Avg_Darts"
-                    )
-                    fig_targets.update_traces(
-                        marker_color="#ff6b35",
-                        texttemplate="%{y:.1f}",
-                        textposition="outside"
-                    )
-                    fig_targets.update_layout(
-                        template="plotly_dark",
-                        paper_bgcolor="rgba(0,0,0,0)",
-                        plot_bgcolor="rgba(0,0,0,0)",
-                        height=320,
-                        margin=dict(t=40, b=20, l=10, r=10),
-                        xaxis=dict(showgrid=False, type='category'),
-                        yaxis=dict(showgrid=True, gridcolor="rgba(255,255,255,0.05)")
-                    )
-                    st.plotly_chart(fig_targets, use_container_width=True)
+                    left, right = st.columns(2)
+                    with left:
+                        ui_helpers.dartboard_ring(seg, "Hit rate per segment", prefix=prefix,
+                                                  key=f"atc_ring_{selected_mode}")
+                    with right:
+                        ui_helpers.segment_bars(seg, "Hit rate per segment (1 → 20, Bull)", prefix=prefix,
+                                                key=f"atc_bars_{selected_mode}")
 
                 st.markdown("---")
 
-                df_daily_a = df_a_filtered.groupby("Date", sort=False).agg({"hit_rate": "mean"}).reset_index()
-                df_daily_a["hit_rate_round"] = df_daily_a["hit_rate"].round(1)
-
-                fig_daily_hit = px.line(
-                    df_daily_a,
-                    x="Date",
-                    y="hit_rate_round",
-                    markers=True,
-                    title=f"📈 Hit Rate (%) Trend ({selected_mode})",
-                    labels={"Date": "", "hit_rate_round": "Hit (%)"}
-                )
-                fig_daily_hit.update_traces(
-                    line=dict(color="#4ecdc4", width=3),
-                    marker=dict(size=8, color="#4ecdc4", line=dict(width=2, color="#ffffff")),
-                    fill="tozeroy",
-                    fillcolor="rgba(78, 205, 196, 0.08)",
-                    hovertemplate="<b>Date: %{x}</b><br>Hit Rate: %{y}%<extra></extra>"
-                )
-
-                min_hit = max(0, df_daily_a["hit_rate_round"].min() - 5)
-                max_hit = min(100, df_daily_a["hit_rate_round"].max() + 5)
-
-                fig_daily_hit.update_layout(
-                    template="plotly_dark",
-                    paper_bgcolor="rgba(0,0,0,0)",
-                    plot_bgcolor="rgba(0,0,0,0)",
-                    height=320,
-                    margin=dict(t=40, b=20, l=10, r=10),
-                    xaxis=dict(showgrid=False, title=""),
-                    yaxis=dict(showgrid=True, gridcolor="rgba(255,255,255,0.05)", range=[min_hit, max_hit], title="Hit (%)")
-                )
-                st.plotly_chart(fig_daily_hit, use_container_width=True)
+                if "datetime" in df_a_filtered.columns and "hit_rate" in df_a_filtered.columns:
+                    sess = df_a_filtered.sort_values("datetime")
+                    fig_hit = go.Figure()
+                    fig_hit.add_trace(go.Scatter(
+                        x=sess["datetime"], y=sess["hit_rate"], mode="markers", name="Session",
+                        marker=dict(color=C["alt"], size=9, opacity=0.65),
+                        customdata=sess[mode_col] if mode_col else None,
+                        hovertemplate="%{x|%d.%m %H:%M}<br>Hit rate: %{y:.1f}%"
+                                      + ("<br>Mode: %{customdata}" if mode_col else "") + "<extra></extra>"))
+                    fig_hit.add_trace(go.Scatter(
+                        x=sess["datetime"], y=ui_helpers.rolling_trend(sess["datetime"], sess["hit_rate"]),
+                        mode="lines", name="5-session average",
+                        line=dict(color=C["you"], width=2.5),
+                        hovertemplate="5-session avg: %{y:.1f}%<extra></extra>"))
+                    fig_hit.update_layout(title=f"📈 Hit Rate per Session ({mode_labels.get(selected_mode, selected_mode)})",
+                                          yaxis=dict(title="Hit rate (%)", ticksuffix="%"), xaxis_title="")
+                    ui_helpers.chart(fig_hit, key=f"atc_trend_{selected_mode}")
 
                 st.markdown("---")
 

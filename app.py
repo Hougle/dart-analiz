@@ -6,6 +6,7 @@ import streamlit as st
 import sqlite3
 import pandas as pd
 import plotly.express as px
+import plotly.graph_objects as go
 import subprocess
 import sys
 from pathlib import Path
@@ -14,6 +15,7 @@ import streamlit_authenticator as stauth
 import practice_tab
 import coaching_page
 import ui_helpers
+import doubles_section
 
 st.set_page_config(page_title="Dart Analysis", page_icon="🎯", layout="wide")
 
@@ -546,45 +548,74 @@ tab1, tab2, tab3, tab4, tab5, tab6, tab7, tab8 = st.tabs([
 with tab1:
     practice_tab.render(PLAYER, DB_PATH, t)
 
+C = ui_helpers.colors()
+efe_marked = mark_double_attempts(efe_throws) if not efe_throws.empty else efe_throws
+
 with tab2:
     st.subheader(t("Last 10 Matches"))
     recent = efe_complete.head(10)[['date', 'opponent', 'result', 'avg', 'opp_avg']].copy()
     recent['result'] = recent['result'].map(RESULT_TXT)
     recent.columns = [t('Date'), t('Opponent'), t('Result'), t('Raw Avg.'), t('Opp. Avg.')]
     st.dataframe(recent, use_container_width=True, hide_index=True)
+
     st.subheader(t("Throw Score Distribution"))
-    fig = px.histogram(efe_throws, x='score_thrown', nbins=30,
-                       title=t("Score Distribution of All Throws"),
-                       labels={'score_thrown': t('Score'), 'count': t('Frequency')},
-                       color_discrete_sequence=['#ff6b35'])
-    st.plotly_chart(fig, use_container_width=True)
+    if not efe_marked.empty:
+        dist = efe_marked.assign(
+            band=ui_helpers.score_bands(efe_marked['score_thrown']),
+            kind=efe_marked['is_dbl'].map({False: t('Scoring turns'), True: t('Double-zone turns')}))
+        dist = (dist.groupby(['band', 'kind'], observed=False).size()
+                .reset_index(name='count'))
+        fig = go.Figure()
+        for kind, color in ((t('Scoring turns'), C['alt']), (t('Double-zone turns'), C['neutral'])):
+            d = dist[dist['kind'] == kind]
+            fig.add_trace(go.Bar(x=d['band'].astype(str), y=d['count'], name=kind,
+                                 marker=dict(color=color, cornerradius=4),
+                                 hovertemplate="%{x}: %{y} " + t("turns") + "<extra>" + kind + "</extra>"))
+        fig.update_layout(barmode='stack', title=t("Score per turn, in 20-point bands"),
+                          xaxis_title=t('Score'), yaxis_title=t('Turns'))
+        ui_helpers.chart(fig, key="overview_bands")
+        st.caption(t("Double-zone turns (remaining ≤ 40) score low by nature; they are shown separately "
+                     "so they don't hide your scoring power."))
 
 with tab3:
     st.subheader(t("Average Over Time — Raw vs Adjusted"))
     efe_sorted = efe_complete.sort_values('date').copy()
-    efe_sorted['label'] = efe_sorted.apply(
-        lambda r: make_label(r['date'], r['opponent']), axis=1)
     if not efe_sorted.empty:
-        fig = px.line(efe_sorted, x='label', y='avg', markers=True,
-                      title=f"{PLAYER} — {t('Raw Average Progress')}",
-                      labels={'label': t('Match'), 'avg': t('Average')})
-        fig.update_traces(line_color='#ff6b35', marker=dict(size=10))
-        fig.update_xaxes(tickangle=-90)
-        st.plotly_chart(fig, use_container_width=True)
-        fig2 = px.line(efe_sorted, x='label', y='adjusted_avg', markers=True,
-                       title=f"{PLAYER} — {t('Adjusted Average Progress')}",
-                       labels={'label': t('Match'), 'adjusted_avg': t('Adjusted Average')})
-        fig2.update_traces(line_color='#4ecdc4', marker=dict(size=10))
-        fig2.update_xaxes(tickangle=-90)
-        st.plotly_chart(fig2, use_container_width=True)
+        efe_sorted['when'] = pd.to_datetime(efe_sorted['date'], errors='coerce')
+        fig = go.Figure()
+        for col, label, color in (('avg', t('Raw average'), C['alt']),
+                                  ('adjusted_avg', t('Adjusted average'), C['you'])):
+            fig.add_trace(go.Scatter(
+                x=efe_sorted['when'], y=efe_sorted[col], mode='markers', name=label,
+                legendgroup=col, showlegend=False,
+                marker=dict(color=color, size=8, opacity=0.55),
+                customdata=list(zip(efe_sorted['opponent'], efe_sorted['result'].map(RESULT_ICON))),
+                hovertemplate="%{x|%d.%m %H:%M} vs %{customdata[0]} %{customdata[1]}<br>"
+                              + label + ": %{y:.2f}<extra></extra>"))
+            fig.add_trace(go.Scatter(
+                x=efe_sorted['when'], y=ui_helpers.rolling_trend(efe_sorted['when'], efe_sorted[col]),
+                mode='lines', name=label, legendgroup=col,
+                line=dict(color=color, width=2.5),
+                hovertemplate=label + " (" + t("5-match avg") + "): %{y:.2f}<extra></extra>"))
+        fig.update_layout(title=f"{PLAYER} — {t('Raw vs Adjusted Average')}",
+                          yaxis_title=t('3-dart average'), hovermode='closest')
+        ui_helpers.chart(fig, key="progress_avg", height=380)
+        st.caption(t("Dots = single matches · lines = 5-match rolling average. "
+                     "Adjusted leaves out double-zone turns."))
+
     st.subheader(t("Average Performance by Turn"))
-    turn_avg = efe_throws.groupby('turn')['score_thrown'].mean().reset_index()
-    turn_avg['score_thrown'] = turn_avg['score_thrown'].round(2)
-    fig3 = px.bar(turn_avg, x='turn', y='score_thrown',
-                  title=t("Average Score by Turn Number"),
-                  labels={'turn': t('Turn'), 'score_thrown': t('Average Score')},
-                  color='score_thrown', color_continuous_scale='Oranges')
-    st.plotly_chart(fig3, use_container_width=True)
+    if not efe_marked.empty:
+        scoring = efe_marked[~efe_marked['is_dbl']]
+        by_turn = scoring.groupby('turn')['score_thrown'].agg(['mean', 'count']).reset_index()
+        by_turn = by_turn[by_turn['count'] >= 10]
+        fig3 = go.Figure(go.Bar(
+            x=by_turn['turn'], y=by_turn['mean'].round(1),
+            marker=dict(color=C['alt'], cornerradius=4), customdata=by_turn['count'],
+            hovertemplate=t("Turn") + " %{x}: %{y:.1f}<br>%{customdata} " + t("turns") + "<extra></extra>"))
+        fig3.update_layout(title=t("Average score by turn number (scoring turns only)"),
+                           xaxis=dict(title=t('Turn'), dtick=1), yaxis_title=t('Average Score'))
+        ui_helpers.chart(fig3, key="by_turn")
+        st.caption(t("Only turns before the double zone, and only turn numbers with at least 10 samples."))
 
 with tab4:
     st.subheader(t("Stats by Opponent"))
@@ -597,9 +628,8 @@ with tab4:
         Rakip_Ort=('opp_avg', 'mean')
     ).reset_index()
     opp_stats['Kazanma_Yuzde'] = (opp_stats['Galibiyet'] / opp_stats['Mac'] * 100).round(1)
-    opp_stats['Ham_Ort'] = opp_stats['Ham_Ort'].round(2)
-    opp_stats['Adjusted'] = opp_stats['Adjusted'].round(2)
-    opp_stats['Rakip_Ort'] = opp_stats['Rakip_Ort'].round(2)
+    for col in ('Ham_Ort', 'Adjusted', 'Rakip_Ort'):
+        opp_stats[col] = opp_stats[col].round(2)
     opp_stats = opp_stats.sort_values('Mac', ascending=False)
     opp_display = opp_stats.rename(columns={
         'opponent': t('Opponent'), 'Mac': t('Match'), 'Galibiyet': t('Wins'),
@@ -607,12 +637,26 @@ with tab4:
         'Adjusted': t('Adjusted'), 'Rakip_Ort': t('Opp. Avg.'),
         'Kazanma_Yuzde': t('Win %')})
     st.dataframe(opp_display, use_container_width=True, hide_index=True)
-    st.subheader(t("My Average by Opponent"))
-    fig = px.bar(opp_stats, x='opponent', y='Ham_Ort',
-                 color='Ham_Ort', color_continuous_scale='Oranges',
-                 text='Ham_Ort', labels={'opponent': t('Opponent'), 'Ham_Ort': t('Average')})
-    fig.update_traces(texttemplate='%{text:.2f}', textposition='outside')
-    st.plotly_chart(fig, use_container_width=True)
+
+    st.subheader(t("My Average vs Opponent's Average"))
+    if not opp_stats.empty:
+        o = opp_stats.sort_values('Ham_Ort')
+        o['ylabel'] = o.apply(lambda r: f"{r['opponent']}  ({int(r['Galibiyet'])}–{int(r['Maglubiyet'])})", axis=1)
+        fig = go.Figure()
+        for _, r in o.iterrows():
+            fig.add_trace(go.Scatter(x=[r['Ham_Ort'], r['Rakip_Ort']], y=[r['ylabel']] * 2, mode='lines',
+                                     line=dict(color=C['grid'], width=6), showlegend=False, hoverinfo='skip'))
+        hover = list(zip(o['Mac'], o['Galibiyet'], o['Maglubiyet']))
+        fig.add_trace(go.Scatter(x=o['Rakip_Ort'], y=o['ylabel'], mode='markers', name=t('Opponent'),
+                                 marker=dict(color=C['neutral'], size=12), customdata=hover,
+                                 hovertemplate=t("Opponent") + ": %{x:.2f}<extra></extra>"))
+        fig.add_trace(go.Scatter(x=o['Ham_Ort'], y=o['ylabel'], mode='markers', name=PLAYER,
+                                 marker=dict(color=C['you'], size=12), customdata=hover,
+                                 hovertemplate=PLAYER + ": %{x:.2f}<br>%{customdata[0]} "
+                                               + t("matches") + " · %{customdata[1]}–%{customdata[2]}<extra></extra>"))
+        fig.update_layout(title=t("3-dart average per opponent (W–L in brackets)"),
+                          xaxis_title=t('3-dart average'), yaxis_title="")
+        ui_helpers.chart(fig, key="opp_dumbbell", height=max(300, 34 * len(o) + 120))
 
 with tab5:
     st.subheader(t("🎯 Double Attempt Analysis"))
@@ -621,27 +665,35 @@ with tab5:
     col1.metric(t("Total Double Attempts"), int(total_dbl))
     col2.metric(t("Failed Doubles"), int(total_failed))
     success_rate = ((total_dbl - total_failed) / total_dbl * 100) if total_dbl > 0 else 0
-    col3.metric(t("Double Success %"), f"{success_rate:.1f}%")
+    col3.metric(t("Double Success %"), ui_helpers.pct(success_rate),
+                help=t("Double-zone turns that ended in a checkout."))
+
+    doubles_section.render(efe_throws, PLAYER, t)
+    st.divider()
+
     st.subheader(t("Double Attempts by Match"))
     dbl_df = efe_complete[['date', 'opponent', 'avg', 'adjusted_avg',
-                            'num_double_attempts', 'num_failed_doubles', 'result']].copy()
+                           'num_double_attempts', 'num_failed_doubles', 'result']].copy()
     dbl_df['fark'] = (dbl_df['adjusted_avg'] - dbl_df['avg']).round(2)
     dbl_df['result'] = dbl_df['result'].map(RESULT_ICON)
     dbl_df.columns = [t('Date'), t('Opponent'), t('Raw Avg.'), t('Adjusted'),
                       t('Double Attempts'), t('Failed'), t('Result'), t('Diff')]
     st.dataframe(dbl_df, use_container_width=True, hide_index=True)
-    st.subheader(t("Raw vs Adjusted Comparison"))
-    comp_df = efe_complete[['date', 'opponent', 'avg', 'adjusted_avg']].copy()
-    comp_df['label'] = comp_df.apply(
-        lambda r: make_label(r['date'], r['opponent']), axis=1)
-    comp_df = comp_df.melt(id_vars=['label'], value_vars=['avg', 'adjusted_avg'],
-                           var_name='Tip', value_name='Ortalama')
-    comp_df['Tip'] = comp_df['Tip'].map({'avg': t('Raw'), 'adjusted_avg': t('Adjusted')})
-    fig = px.bar(comp_df, x='label', y='Ortalama', color='Tip', barmode='group',
-                 title=t("Raw vs Adjusted by Match"),
-                 labels={'label': t('Match'), 'Ortalama': t('Average'), 'Tip': t('Type')})
-    fig.update_xaxes(tickangle=-90)
-    st.plotly_chart(fig, use_container_width=True)
+
+    st.subheader(t("Average lost to the double zone"))
+    comp_df = efe_complete.sort_values('date').copy()
+    if not comp_df.empty:
+        comp_df['label'] = comp_df.apply(lambda r: make_label(r['date'], r['opponent']), axis=1)
+        comp_df['diff'] = comp_df['adjusted_avg'] - comp_df['avg']
+        fig = go.Figure(go.Bar(
+            x=comp_df['label'], y=comp_df['diff'], marker=dict(color=C['you'], cornerradius=4),
+            customdata=list(zip(comp_df['avg'], comp_df['adjusted_avg'])),
+            hovertemplate="%{x}<br>" + t("Raw") + ": %{customdata[0]:.2f} → " + t("Adjusted")
+                          + ": %{customdata[1]:.2f}<br>+%{y:.2f}<extra></extra>"))
+        fig.update_layout(title=t("Adjusted minus raw average, per match (oldest → newest)"),
+                          xaxis=dict(type='category', tickangle=-45, title=''),
+                          yaxis_title=t('Points of average'))
+        ui_helpers.chart(fig, key="dbl_cost")
 
 with tab6:
     st.subheader(t("🏆 Top 5 Matches (by Raw Average)"))
@@ -706,6 +758,32 @@ with tab7:
                 leg_throws = leg_throws.sort_values(['player_name', 'turn'])
                 players_in_leg = [PLAYER] + [
                     p for p in leg_throws['player_name'].unique() if p != PLAYER][:2]
+
+                # Leg replay: remaining score after each turn, both players.
+                replay = go.Figure()
+                for player in players_in_leg:
+                    pt = leg_throws[leg_throws['player_name'] == player].sort_values('turn')
+                    if pt.empty:
+                        continue
+                    start = pt['remaining_before'].iloc[0]
+                    is_me = player == PLAYER
+                    replay.add_trace(go.Scatter(
+                        x=[0] + pt['turn'].tolist(), y=[start] + pt['remaining_after'].tolist(),
+                        mode='lines+markers', name=clean_name(player),
+                        line=dict(color=C['you'] if is_me else C['neutral'], width=2.5 if is_me else 2,
+                                  shape='hv'),
+                        marker=dict(size=8),
+                        customdata=[0] + pt['score_thrown'].tolist(),
+                        hovertemplate="%{fullData.name} · " + t("Turn") + " %{x}<br>" + t("Throw")
+                                      + ": %{customdata}<br>" + t("Remaining") + ": %{y}<extra></extra>"))
+                replay.add_hrect(y0=0, y1=40, fillcolor=C['grid'], line_width=0,
+                                 annotation_text=t("double zone"), annotation_position="top left",
+                                 annotation_font_color=C['muted'])
+                replay.update_layout(title=t("Leg replay — remaining score after each turn"),
+                                     xaxis=dict(title=t('Turn'), dtick=1),
+                                     yaxis=dict(title=t('Remaining'), rangemode='tozero'))
+                ui_helpers.chart(replay, key=f"replay_{leg_id}", height=300)
+
                 if len(players_in_leg) == 2:
                     cols = st.columns(2)
                     for i, player in enumerate(players_in_leg):

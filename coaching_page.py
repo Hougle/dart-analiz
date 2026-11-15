@@ -4,7 +4,8 @@ Coaching & Advanced Analytics Dashboard
 import streamlit as st
 import pandas as pd
 import sqlite3
-import plotly.express as px
+import plotly.graph_objects as go
+import ui_helpers
 from dartcounter_api import DB_PATH, _turso_available, turso_query
 from practice_tab import calculate_score_metrics
 
@@ -76,54 +77,90 @@ def render_coaching_page(player_name, t_func):
     # Calculate Metrics
     consistency_idx, bounce_back, decay, overall_avg = calculate_advanced_metrics(df_turns, df_sessions)
 
-    # Top Metric Cards
+    # Top Metric Cards (explanations live in the ⓘ tooltip, not in fake deltas)
     col1, col2, col3, col4 = st.columns(4)
-    col1.metric("🎯 Consistency Index", f"%{consistency_idx:.1f}", delta="Stability Score")
-    col2.metric("🧠 Recovery Speed", f"%{bounce_back:.1f}", delta="Post-Pressure Reaction")
-    col3.metric("⚡ Fatigue Curve", f"{decay:+.1f}%", delta="Late-Set Performance")
-    col4.metric("📊 Overall 3-Dart Avg.", f"{overall_avg:.1f}", delta="Scoring Power")
+    col1.metric("🎯 Consistency Index", ui_helpers.pct(consistency_idx),
+                help="100 − coefficient of variation of turn scores. Higher = steadier scoring.")
+    col2.metric("🧠 Recovery Rate", ui_helpers.pct(bounce_back),
+                help="After a turn of 40 or less, how often the next turn in the same session "
+                     "reaches your average turn score.")
+    col3.metric("⚡ Fatigue Curve", f"{decay:+.1f}%",
+                help="Average of the last 3 turns vs the first 3 turns of each session.")
+    col4.metric("📊 Overall 3-Dart Avg.", f"{overall_avg:.1f}",
+                help="Mean of your Score Training session averages.")
 
     st.markdown("---")
 
-    # AI Coaching Observations & Recommendations
-    st.subheader("💡 AI Coaching Observations & Recommendations")
-    
-    insights = []
+    # Coaching observations, shown with status colour + icon + label
+    st.subheader("💡 Coaching Observations & Recommendations")
     if consistency_idx >= 75:
-        insights.append("🟢 **Great Consistency:** Your throws are highly stabilized with minimal score fluctuations.")
+        st.success("**Great Consistency:** Your throws are highly stabilized with minimal score fluctuations.", icon="✅")
     else:
-        insights.append("🟡 **Volatile Rhythm:** Sharp fluctuations detected in your scores. Focus on routine training to build mechanical consistency.")
-
+        st.warning("**Volatile Rhythm:** Sharp fluctuations detected in your scores. Focus on routine "
+                   "training to build mechanical consistency.", icon="⚠️")
     if bounce_back >= 50:
-        insights.append("🟢 **Strong Mental Resilience:** Excellent recovery rate after low scoring turns (<=40). You handle pressure well.")
+        st.success("**Strong Recovery:** You often bounce back after low-scoring turns (≤ 40).", icon="✅")
     else:
-        insights.append("🔴 **Critical Weakness (Bounce-Back):** Struggling to bounce back in the turn following a bad throw. Mental focus exercises can help.")
-
+        st.error("**Weak Bounce-Back:** Struggling to reach your average in the turn after a bad one. "
+                 "Practise a reset routine between visits.", icon="🔴")
     if decay < -5:
-        insights.append("⚠️ **Physical / Mental Fatigue:** A performance drop is noticeable towards the end of sets (later turns). Stamina training is recommended.")
+        st.warning("**Fatigue:** Scores drop towards the end of sessions. Stamina training is recommended.", icon="⚠️")
     else:
-        insights.append("🟢 **Good Stamina:** You maintain your performance throughout the set with minimal fatigue effects.")
-
-    for insight in insights:
-        st.info(insight)
+        st.success("**Good Stamina:** You keep your level to the end of the session.", icon="✅")
 
     st.markdown("---")
 
-    # Detailed Score Distribution Chart
-    st.subheader("📈 Score Distribution and Trend Analysis")
-    
-    if "started_at" in df_sessions.columns and df_sessions["started_at"].notna().any():
-        df_sessions["datetime"] = pd.to_datetime(df_sessions["started_at"], unit="s", utc=True).dt.tz_convert("Europe/Istanbul")
-        df_sessions["Date"] = df_sessions["datetime"].dt.strftime("%d.%m.%Y")
-    elif "date" in df_sessions.columns:
-        df_sessions["Date"] = df_sessions["date"].astype(str)
-    else:
-        df_sessions["Date"] = [f"Session {i+1}" for i in range(len(df_sessions))]
+    # Trends: one small chart per measure (different scales never share an axis)
+    st.subheader("📈 Are you improving? Per-session trends")
+    turns = df_turns.copy()
+    turns["score"] = pd.to_numeric(turns["score"], errors="coerce")
+    if "session_id" not in turns.columns or "session_id" not in df_sessions.columns:
+        st.info("Session ids are missing, so per-session trends can't be drawn.")
+        return
 
-    fig = px.box(
-        df_turns, y=score_col, 
-        title="🎛️ Turn Score Distribution (Box Plot)",
-        labels={score_col: "Turn Score"}
-    )
-    fig.update_layout(template="plotly_dark", height=350)
-    st.plotly_chart(fig, use_container_width=True)
+    rows = []
+    for sid, g in turns.groupby("session_id"):
+        std, bb, _ = calculate_score_metrics(g)
+        mean = g["score"].mean()
+        ci = max(0.0, 100 - std / mean * 100) if mean and pd.notna(std) else None
+        rows.append({"session_id": sid, "avg": mean, "consistency": ci,
+                     "bad": int((g.sort_values("turn")["score"].shift(1) <= 40).sum()) if "turn" in g else 0})
+    per = pd.DataFrame(rows)
+    sess = df_sessions[["session_id", "started_at"]].merge(per, on="session_id", how="inner")
+    sess["when"] = pd.to_datetime(sess["started_at"], unit="s", utc=True).dt.tz_convert("Europe/Istanbul")
+    sess = sess.sort_values("when")
+
+    # Recovery is too noisy per 10-turn session, so it is pooled over the last 5 sessions.
+    recov = []
+    sids = sess["session_id"].tolist()
+    for i in range(len(sids)):
+        window = turns[turns["session_id"].isin(sids[max(0, i - 4): i + 1])]
+        recov.append(calculate_score_metrics(window)[1])
+    sess["recovery"] = recov
+
+    C = ui_helpers.colors()
+    panels = [
+        ("avg", "Turn average", "", "{:.1f}"),
+        ("consistency", "Consistency index", "%", "{:.0f}%"),
+        ("recovery", "Recovery rate (last 5 sessions)", "%", "{:.0f}%"),
+    ]
+    cols = st.columns(3)
+    for (col, title, suffix, fmt), slot in zip(panels, cols):
+        with slot:
+            fig = go.Figure()
+            if col != "recovery":
+                fig.add_trace(go.Scatter(x=sess["when"], y=sess[col], mode="markers",
+                                         marker=dict(color=C["alt"], size=7, opacity=0.55), showlegend=False,
+                                         hovertemplate="%{x|%d.%m %H:%M}: %{y:.1f}" + suffix + "<extra></extra>"))
+                trend = ui_helpers.rolling_trend(sess["when"], sess[col])
+            else:
+                trend = sess[col].to_numpy()
+            fig.add_trace(go.Scatter(x=sess["when"], y=trend, mode="lines", showlegend=False,
+                                     line=dict(color=C["you"], width=2.5),
+                                     hovertemplate="%{x|%d.%m}: %{y:.1f}" + suffix + "<extra></extra>"))
+            last = trend[-1] if len(trend) else None
+            fig.update_layout(title=f"{title}<br><sup>latest: {fmt.format(last) if last is not None else '–'}</sup>",
+                              yaxis=dict(ticksuffix=suffix), xaxis=dict(tickformat="%d.%m"),
+                              margin=dict(t=64, b=30, l=40, r=10))
+            ui_helpers.chart(fig, key=f"coach_{col}", height=260)
+    st.caption("Dots = single sessions · orange line = 5-session rolling average.")

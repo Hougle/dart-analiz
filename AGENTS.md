@@ -29,7 +29,8 @@ python -m py_compile *.py
 | `practice_tab.py` | Practice tab (Score Training, Around the Clock, Singles) and the "FETCH PRACTICE" sidebar button |
 | `singles_tab.py` | Singles Training sub-tab, called from `practice_tab.py` |
 | `coaching_page.py` | Coaching & Analytics tab |
-| `ui_helpers.py` | Mobile CSS and the `metric_grid` / `chart` / `mobile_dataframe` helpers |
+| `ui_helpers.py` | Mobile CSS, the shared chart palette (`colors()`, `seq_scale()`), `chart()` styling, `score_bands()`, `pct()`, and the `dartboard_ring()` / `segment_bars()` segment charts |
+| `doubles_section.py` | Double ring heatmap in the Double Trouble tab (ATC Doubles mode + estimated match checkouts) |
 | `around_tab.py`, `score_training_tab.py` | **Unused.** Nothing imports them; their logic was merged into `practice_tab.py`. Edit `practice_tab.py` instead |
 
 ## Data
@@ -65,6 +66,7 @@ python -m py_compile *.py
 - Every Streamlit tab renders on each rerun, so keep data loading cached (`@st.cache_data`) and handle errors per tab. One missing table shouldn't take down the whole app.
 - After any import or fetch action, call `st.cache_data.clear()` before `st.rerun()`.
 - Don't make up placeholder data in charts. If data is missing, show an `st.info` message.
+- **Charts:** build them with `plotly.graph_objects`, render them with `ui_helpers.chart()`, and take colors from `ui_helpers.colors()` roles (`you` = player/adjusted, `alt` = second series, `neutral` = opponents). Don't force `template="plotly_dark"` or hard-code hex. Plot time on a real datetime axis. Never use dual y-axes; use small multiples instead. Use straight lines, not splines (sessions cluster minutes apart). Put metric explanations in `help=`, not in `delta=`.
 
 ## Known broken (as of 2026-11-15)
 

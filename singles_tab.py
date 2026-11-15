@@ -4,7 +4,8 @@ Singles Training Analysis Module
 import streamlit as st
 import pandas as pd
 import sqlite3
-import plotly.express as px
+import plotly.graph_objects as go
+import ui_helpers
 from dartcounter_api import DB_PATH, _turso_available, turso_query
 
 def render_singles_tab():
@@ -43,27 +44,45 @@ def render_singles_tab():
         else:
             df_sessions["hit_rate"] = 0.0
 
+    C = ui_helpers.colors()
+
     # Summary Metrics
     total_sessions = len(df_sessions)
     avg_hit_rate = df_sessions["hit_rate"].mean() if "hit_rate" in df_sessions.columns else 0
-    total_darts = df_sessions["darts_thrown"].sum() if "darts_thrown" in df_sessions.columns else 0
+    total_darts = int(df_sessions["darts_thrown"].sum()) if "darts_thrown" in df_sessions.columns else 0
 
     col1, col2, col3 = st.columns(3)
     col1.metric("Total Sessions", total_sessions)
-    col2.metric("Average Hit Rate", f"%{avg_hit_rate:.1f}")
+    col2.metric("Average Hit Rate", ui_helpers.pct(avg_hit_rate),
+                help="Darts that hit the called number, divided by darts thrown.")
     col3.metric("Total Darts Thrown", total_darts)
 
     st.markdown("---")
 
-    # Hit Rate Timeline Chart
-    fig_timeline = px.line(
-        df_sessions, x="Date_Format", y="hit_rate", markers=True,
-        title="Hit Rate Over Time (%)",
-        labels={"Date_Format": "Date / Time", "hit_rate": "Hit Rate (%)"}
-    )
-    fig_timeline.update_traces(line_color="#ff6b35", marker=dict(size=8))
-    fig_timeline.update_layout(template="plotly_dark", height=320, margin=dict(t=40, b=20, l=20, r=20))
-    st.plotly_chart(fig_timeline, use_container_width=True)
+    # Per-number accuracy: 3 darts are thrown at every target.
+    if not df_targets.empty and {"target", "hits"}.issubset(df_targets.columns):
+        seg = df_targets.assign(attempts=3)
+        seg = seg.groupby("target")[["hits", "attempts"]].sum().reset_index()
+        seg["target"] = seg["target"].astype(int)
+        seg["value"] = seg["hits"] / seg["attempts"]
+        left, right = st.columns(2)
+        with left:
+            ui_helpers.dartboard_ring(seg, "Hit rate per number", key="singles_ring", min_n=6)
+        with right:
+            ui_helpers.segment_bars(seg, "Hit rate per number (1 → 20, Bull)", key="singles_bars", min_n=6)
+        st.markdown("---")
+
+    # Hit Rate per session on a real time axis
+    if "datetime" in df_sessions.columns and df_sessions["datetime"].notna().any():
+        sess = df_sessions.sort_values("datetime")
+        fig = go.Figure()
+        fig.add_trace(go.Scatter(
+            x=sess["datetime"], y=sess["hit_rate"], mode="markers+lines", name="Session",
+            line=dict(color=C["alt"], width=2), marker=dict(color=C["alt"], size=9),
+            hovertemplate="%{x|%d.%m %H:%M}<br>Hit rate: %{y:.1f}%<extra></extra>"))
+        fig.update_layout(title="Hit Rate per Session", yaxis=dict(title="Hit rate (%)", ticksuffix="%"),
+                          xaxis_title="", showlegend=False)
+        ui_helpers.chart(fig, key="singles_trend", height=300)
 
     st.markdown("### 📋 Past Singles Sessions")
     
