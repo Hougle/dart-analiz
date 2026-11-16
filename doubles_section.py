@@ -11,7 +11,10 @@ Combines three sources of double attempts into per-dart hit rates per double:
     checkout counts as a hit. This is an estimate: a dart that lands in the
     single and leaves a new double is still counted against the first double.
 """
+import math
+
 import pandas as pd
+import plotly.graph_objects as go
 import streamlit as st
 
 import ui_helpers
@@ -72,6 +75,73 @@ def _training_doubles(player, player_id=None):
     return t.groupby("target")[["hits", "attempts"]].sum().reset_index()
 
 
+def _wilson_low(hits, n, z=1.96):
+    """Lower end of the 95% Wilson interval: a hit rate you can count on, not a lucky streak."""
+    p = hits / n
+    centre = p + z * z / (2 * n)
+    margin = z * math.sqrt(p * (1 - p) / n + z * z / (4 * n * n))
+    return max(0.0, (centre - margin) / (1 + z * z / n))
+
+
+def _reliable_doubles(stats, t):
+    st.subheader(t("🏅 Most reliable doubles"))
+    min_darts = st.slider(t("Minimum darts at a double to rank it"), 5, 100, 20, step=5,
+                          key="reliable_min_darts",
+                          help=t("Doubles with fewer darts are left out; a couple of lucky hits "
+                                 "shouldn't put a double on top."))
+    r = stats[stats["attempts"] >= min_darts].copy()
+    if r.empty:
+        st.info(t("No double has that many darts yet. Lower the minimum or practise more doubles."))
+        return
+    r["reliable"] = [_wilson_low(h, n) for h, n in zip(r["hits"], r["attempts"])]
+    r = r.sort_values(["reliable", "value"], ascending=False).reset_index(drop=True)
+    r["name"] = r["target"].apply(lambda tg: "DBull" if int(tg) == 25 else f"D{int(tg)}")
+    r["per_hit"] = r.apply(lambda x: x["attempts"] / x["hits"] if x["hits"] else None, axis=1)
+
+    top = r.head(3)
+    cols = st.columns(len(top))
+    for medal, (_, row), col in zip(("🥇", "🥈", "🥉"), top.iterrows(), cols):
+        col.metric(f"{medal} {row['name']}", ui_helpers.pct(row["value"] * 100),
+                   help=f"{int(row['hits'])} / {int(row['attempts'])} " + t("darts") + " · "
+                        + (f"1 {t('in')} {row['per_hit']:.1f} {t('darts')}" if row["per_hit"] else t("no hits yet")))
+
+    C = ui_helpers.colors()
+    shown = r.iloc[::-1]  # best at the top of a horizontal bar chart
+    fig = go.Figure(go.Bar(
+        x=shown["value"], y=shown["name"], orientation="h",
+        marker=dict(color=[C["you"] if i < 3 else C["alt"] for i in shown.index], cornerradius=4),
+        text=[f"{ui_helpers.pct(v * 100)}  ·  " + (f"1 in {p:.1f}" if p else "–")
+              for v, p in zip(shown["value"], shown["per_hit"])],
+        textposition="outside", textfont=dict(color=C["text"], size=11), cliponaxis=False,
+        customdata=list(zip(shown["hits"].astype(int), shown["attempts"].astype(int),
+                            (shown["reliable"] * 100).round(1))),
+        hovertemplate="<b>%{y}</b><br>" + t("Hit rate") + ": %{x:.1%}<br>%{customdata[0]} / "
+                      "%{customdata[1]} " + t("darts") + "<br>" + t("Confidence-adjusted")
+                      + ": %{customdata[2]}%<extra></extra>"))
+    fig.update_layout(title=t("Doubles ranked by reliability (best at the top)"), showlegend=False,
+                      xaxis=dict(title=t("Hit rate"), tickformat=".0%",
+                                 range=[0, max(r["value"].max() * 1.35, 0.05)]),
+                      yaxis=dict(title="", type="category"))
+    ui_helpers.chart(fig, key="reliable_doubles", height=max(260, 30 * len(r) + 110),
+                     margin=dict(t=56, b=40, l=64, r=20))
+    st.caption(t("Ranked by a confidence-adjusted hit rate (the low end of a 95% range), so a double "
+                 "you hit often over many darts beats one lucky streak. Orange = your top 3."))
+
+    with st.expander(t("Full table")):
+        table = pd.DataFrame({
+            t("Rank"): range(1, len(r) + 1),
+            t("Double"): r["name"],
+            t("Hit rate"): r["value"] * 100,
+            t("1 hit every … darts"): r["per_hit"].round(1),
+            t("Hits"): r["hits"].astype(int),
+            t("Darts"): r["attempts"].astype(int),
+        })
+        st.dataframe(table, hide_index=True, use_container_width=True,
+                     column_config={t("Hit rate"): st.column_config.ProgressColumn(
+                         t("Hit rate"), format="%.1f%%", min_value=0,
+                         max_value=float(max(table[t("Hit rate")].max(), 1)))})
+
+
 def _confidence(darts):
     if darts >= 500:
         return "High"
@@ -124,7 +194,9 @@ def render(efe_throws, player, t, player_id=None):
     c1.metric(t("Overall double hit rate"), ui_helpers.pct(hits / darts * 100),
               help=t("Hits divided by darts thrown at doubles.") + f" {hits} / {darts}")
     if not rated.empty:
-        best = rated.loc[rated["value"].idxmax()]
+        # Same confidence-adjusted measure as the ranking below, so the two agree.
+        reliable = [_wilson_low(h, n) for h, n in zip(rated["hits"], rated["attempts"])]
+        best = rated.iloc[max(range(len(reliable)), key=reliable.__getitem__)]
         worst = rated.loc[rated["value"].idxmin()]
         c2.metric(t("Most reliable double"), name(best["target"]),
                   help=f"{ui_helpers.pct(best['value'] * 100)} · {int(best['hits'])}/{int(best['attempts'])}")
@@ -149,3 +221,6 @@ def render(efe_throws, player, t, player_id=None):
     if choice in ("Combined", "Match"):
         st.caption(t("Match checkouts are estimated per visit: every dart in a visit that starts on a "
                      "finishable double counts as an attempt at that double."))
+
+    st.divider()
+    _reliable_doubles(stats, t)
