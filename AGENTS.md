@@ -39,7 +39,8 @@ python -m py_compile *.py
 | `practice_tab.py` | Practice tab (Score Training, Around the Clock, Singles, Doubles Training), `session_table()` and the cached `load_all_practice_data()` |
 | `doubles_training_tab.py` | Doubles Training sub-tab, called from `practice_tab.py` |
 | `singles_tab.py` | Singles Training sub-tab, called from `practice_tab.py` |
-| `coaching_page.py` | Coaching & Analytics tab |
+| `coaching.py` | Coaching calculations, no Streamlit: levels and targets, the 8 skills (`assess`), `priorities`, `weekly_plan`, `then_vs_now`, `daily`. Spec: `docs/coaching.md`. Tested in `tests/test_coaching.py` |
+| `coaching_page.py` | Coaching tab: loads the period's data into `coaching.Data` and draws level, skill profile, priorities, weekly plan and progress |
 | `ui_helpers.py` | Theme CSS (`inject_theme_css()`, `page_header()`, `tokens()`), the shared chart palette (`colors()`, `seq_scale()`), `chart()` styling, `daily_trend()`, `score_bands()`, `pct()`, and the `dartboard_ring()` / `segment_bars()` segment charts |
 | `doubles_section.py` | Double ring heatmap in the Double Trouble tab (Doubles Training + ATC Doubles mode + estimated match checkouts) |
 

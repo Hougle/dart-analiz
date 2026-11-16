@@ -232,6 +232,30 @@ div[data-testid="stAlert"] > div {{ border-radius: 10px; }}
 .da-key {{ display: inline-flex; align-items: center; gap: 0.4rem; font-size: 0.8rem; color: var(--da-muted); }}
 .da-key i {{ width: 10px; height: 10px; border-radius: 3px; display: inline-block; }}
 
+/* ---------- coaching: level card, plan blocks */
+.da-level {{
+    background: var(--da-card); border: 1px solid var(--da-border); border-radius: 12px;
+    padding: 1rem 1.1rem; box-shadow: var(--da-shadow); margin-bottom: 0.9rem;
+}}
+.da-level-k {{ color: var(--da-muted); font-size: 0.78rem; font-weight: 500; }}
+.da-level-v {{ font-family: "Inter Tight", "Inter", sans-serif; font-weight: 700; font-size: 1.6rem;
+              letter-spacing: -0.02em; color: var(--da-text); line-height: 1.2; }}
+.da-level-s {{ color: var(--da-muted); font-size: 0.85rem; margin: 0.15rem 0 0.7rem; }}
+.da-level-s b {{ color: var(--da-text); }}
+.da-bar {{ height: 8px; border-radius: 999px; background: var(--da-card2); overflow: hidden;
+          border: 1px solid var(--da-border); }}
+.da-bar span {{ display: block; height: 100%; border-radius: 999px; background: var(--da-accent); }}
+.da-bar-l {{ display: flex; justify-content: space-between; gap: 0.5rem; margin-top: 0.35rem;
+            color: var(--da-muted); font-size: 0.75rem; }}
+.da-bar-l span:nth-child(2) {{ color: var(--da-text); font-weight: 600; }}
+.da-big {{ font-size: 1.5rem; font-weight: 650; letter-spacing: -0.02em; color: var(--da-text); }}
+.da-muted {{ color: var(--da-muted); font-size: 0.85rem; }}
+.da-block {{ padding: 0.55rem 0; border-top: 1px solid var(--da-border); }}
+.da-block:first-of-type {{ border-top: none; }}
+.da-block-t {{ display: flex; justify-content: space-between; gap: 0.5rem; flex-wrap: wrap;
+              color: var(--da-text); font-size: 0.9rem; }}
+.da-block-t .da-muted {{ margin-left: auto; white-space: nowrap; }}
+
 /* ---------- headings */
 h3 {{ letter-spacing: -0.015em; }}
 h4, h5 {{
@@ -292,6 +316,11 @@ section[data-testid="stSidebar"] h2, section[data-testid="stSidebar"] h3 {{
     }}
     div[data-testid="stMetric"] {{ padding: 0.65rem 0.75rem; }}
     div[data-testid="stMetricValue"] {{ font-size: 1.2rem !important; }}
+    /* Long values (e.g. "Doubles accuracy") wrap instead of being cut off with "…". */
+    div[data-testid="stMetricValue"], div[data-testid="stMetricValue"] > div {{
+        white-space: normal !important; overflow: visible !important; text-overflow: clip !important;
+        line-height: 1.25;
+    }}
     div[data-testid="stMetricLabel"] p {{ font-size: 0.72rem !important; }}
     div[data-testid="stButtonGroup"] button {{ padding: 0.25rem 0.55rem !important; min-height: 2rem !important; }}
     div[data-testid="stButtonGroup"] button p {{ font-size: 0.8rem !important; }}

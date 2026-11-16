@@ -671,4 +671,5 @@ with tab_practice:
     practice_tab.render(PLAYER, DB_PATH, t, player_id=PLAYER_ID)
 
 with tab_coach:
-    coaching_page.render_coaching_page(PLAYER, t, player_id=PLAYER_ID, efe_throws=period_throws)
+    coaching_page.render_coaching_page(PLAYER, t, player_id=PLAYER_ID, matches=efe_complete,
+                                       all_matches=efe_matches, throws=period_throws)
