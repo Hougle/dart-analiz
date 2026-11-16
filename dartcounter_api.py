@@ -299,6 +299,12 @@ def save_setting(key, value):
                   [key, str(value), now])
 
 
+def mark_synced():
+    """Store when the last sync ran, in Istanbul time (Streamlit Cloud's server clock is UTC)."""
+    from zoneinfo import ZoneInfo
+    save_setting("last_sync", datetime.now(ZoneInfo("Europe/Istanbul")).strftime("%d %b %Y, %H:%M"))
+
+
 def get_setting(key):
     """Return the stored value for key, or None."""
     try:
