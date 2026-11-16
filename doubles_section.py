@@ -117,6 +117,7 @@ def render(efe_throws, player, t, player_id=None):
     rated = stats[stats["attempts"] >= MIN_N]
 
     def name(tg):
+        tg = int(tg)  # a row taken with .loc comes back as float
         return "DBull" if tg == 25 else f"D{tg}"
 
     c1, c2, c3, c4 = st.columns(4)
