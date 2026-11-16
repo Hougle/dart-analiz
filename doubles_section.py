@@ -117,7 +117,7 @@ def ranked(stats, min_darts=20):
 
 
 def _reliable_doubles(stats, t):
-    st.subheader(t("🏅 Most reliable doubles"))
+    st.subheader(t("Most reliable doubles"))
     min_darts = st.slider(t("Minimum darts at a double to rank it"), 5, 100, 20, step=5,
                           key="reliable_min_darts",
                           help=t("Doubles with fewer darts are left out; a couple of lucky hits "
@@ -129,8 +129,8 @@ def _reliable_doubles(stats, t):
 
     top = r.head(3)
     cols = st.columns(len(top))
-    for medal, (_, row), col in zip(("🥇", "🥈", "🥉"), top.iterrows(), cols):
-        col.metric(f"{medal} {row['name']}", ui_helpers.pct(row["value"] * 100),
+    for medal, (_, row), col in zip(("1st", "2nd", "3rd"), top.iterrows(), cols):
+        col.metric(f"{medal} · {row['name']}", ui_helpers.pct(row["value"] * 100),
                    help=f"{int(row['hits'])} / {int(row['attempts'])} " + t("darts") + " · "
                         + (f"1 {t('in')} {row['per_hit']:.1f} {t('darts')}" if row["per_hit"] else t("no hits yet")))
 

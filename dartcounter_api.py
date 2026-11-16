@@ -493,7 +493,49 @@ def setup_database(conn=None):
         """)
         conn.commit()
         conn.close()
+    _ensure_column("matches", "duration_sec", "INTEGER")
     return conn
+
+
+def _ensure_column(table, column, sql_type):
+    """Add a column to an existing table if it's missing (both backends)."""
+    if _turso_available():
+        cols = [r[1] for r in turso_query(f"PRAGMA table_info({table})")[1]]
+        if column not in cols:
+            turso_execute(f"ALTER TABLE {table} ADD COLUMN {column} {sql_type}")
+        return
+    conn = sqlite3.connect(DB_PATH)
+    try:
+        cols = [r[1] for r in conn.execute(f"PRAGMA table_info({table})")]
+        if column not in cols:
+            conn.execute(f"ALTER TABLE {table} ADD COLUMN {column} {sql_type}")
+            conn.commit()
+    finally:
+        conn.close()
+
+
+def _unix(v):
+    """Unix seconds from DartCounter's mix of Unix numbers (s or ms) and ISO strings."""
+    if v is None or v == "":
+        return None
+    if isinstance(v, (int, float)):
+        return v / 1000 if v > 1e11 else float(v)
+    try:
+        return float(v) / 1000 if float(v) > 1e11 else float(v)
+    except ValueError:
+        pass
+    try:
+        return datetime.fromisoformat(str(v).replace("Z", "+00:00")).timestamp()
+    except ValueError:
+        return None
+
+
+def match_duration(data):
+    """Seconds from a match's start to its finish, or None when either is missing."""
+    start, end = _unix(data.get("started_at")), _unix(data.get("finished_at"))
+    if start is None or end is None or end < start:
+        return None
+    return int(round(end - start))
 
 
 def match_exists(conn, match_id):
@@ -579,8 +621,8 @@ def save_match(conn, data):
                   p1_highest_score, p2_highest_score,
                   p1_highest_finish, p2_highest_finish,
                   p1_checkout_rate, p2_checkout_rate,
-                  p1_180s, p2_180s, source)
-                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"""
+                  p1_180s, p2_180s, source, duration_sec)
+                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"""
 
     args = (
         match_id, date_str, game_type, p1_name, p2_name,
@@ -598,7 +640,7 @@ def save_match(conn, data):
         safe_int(p2.get("highest_finish")),
         safe_float(p1.get("checkout_rate")),
         safe_float(p2.get("checkout_rate")),
-        p1_180s, p2_180s, "api",
+        p1_180s, p2_180s, "api", match_duration(data),
     )
 
     # On Turso the whole match goes out as one all-or-nothing batch at the end.

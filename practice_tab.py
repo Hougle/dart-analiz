@@ -217,7 +217,7 @@ def render(player_name, db_path, t_func, player_id=None):
                         names = ", ".join(
                             f"**{prefix}{'Bull' if r['target'] == 25 else int(r['target'])}** "
                             f"(1 in {r['attempts'] / r['hits']:.1f})" for _, r in worst.iterrows())
-                        st.info(f"Hardest targets here: {names}", icon="🎯")
+                        st.info(f"Hardest targets here: {names}", icon=":material/my_location:")
 
                     left, right = st.columns(2)
                     with left:

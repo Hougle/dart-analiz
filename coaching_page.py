@@ -112,20 +112,20 @@ def render_coaching_page(player_name, t_func, player_id=None, efe_throws=None):
     with left:
         if strengths:
             title, text = strengths[0]
-            st.success(f"**Strength — {title}**  \n{text}", icon="💪")
+            st.success(f"**Strength — {title}**  \n{text}", icon=":material/trending_up:")
     with right:
         if focus:
             _, title, text, drill = focus[0]
-            st.info(f"**Focus — {title}**  \n{text}  \n**Drill:** {drill}", icon="🎯")
+            st.info(f"**Focus — {title}**  \n{text}  \n**Drill:** {drill}", icon=":material/my_location:")
         else:
-            st.success("**No weak spot stands out.** Keep your current routine.", icon="✅")
+            st.success("**No weak spot stands out.** Keep your current routine.", icon=":material/check_circle:")
     rest = strengths[1:] + [f[1:] for f in focus[1:]]
     if rest:
         with st.expander(f"All observations ({len(rest)} more)"):
             for item in strengths[1:]:
-                st.markdown(f"💪 **{item[0]}** — {item[1]}")
+                st.markdown(f":material/trending_up: **{item[0]}** — {item[1]}")
             for _, title, text, drill in focus[1:]:
-                st.markdown(f"🎯 **{title}** — {text}  \n*Drill:* {drill}")
+                st.markdown(f":material/my_location: **{title}** — {text}  \n*Drill:* {drill}")
 
     # Trends: one small chart per measure (different scales never share an axis)
     st.subheader("Are you improving?")

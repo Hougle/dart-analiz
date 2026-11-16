@@ -17,7 +17,7 @@ import requests
 
 from dartcounter_api import (
     API_BASE, DB_PATH, _turso_available, turso_batch, turso_execute_script,
-    turso_query, setup_database, match_exists, fetch_match, save_match,
+    turso_query, setup_database, match_exists, fetch_match, save_match, match_duration,
 )
 
 FIRST_YEAR = 2015  # DartCounter's online stats don't go back further than this
@@ -352,6 +352,37 @@ def detect_player(token):
     return int(uid), names.get(uid)
 
 
+def backfill_match_durations(token, log=print):
+    """Fill matches.duration_sec for matches stored before it existed. Returns how many were filled."""
+    sql = "SELECT match_id FROM matches WHERE duration_sec IS NULL"
+    turso = _turso_available()
+    if turso:
+        ids = [r[0] for r in turso_query(sql)[1]]
+    else:
+        with sqlite3.connect(DB_PATH) as conn:
+            ids = [r[0] for r in conn.execute(sql)]
+    if not ids:
+        return 0
+    log(f"⏱ Fetching match length for {len(ids)} older matches")
+    updates = []
+    for mid in ids:
+        try:
+            sec = match_duration(fetch_match(mid, token))
+        except PermissionError:
+            raise
+        except Exception as e:
+            log(f"  ❌ match {mid[:8]}: {e}")
+            continue
+        if sec is not None:
+            updates.append(("UPDATE matches SET duration_sec=? WHERE match_id=?", [sec, mid]))
+    if turso:
+        turso_batch(updates)
+    elif updates:
+        with sqlite3.connect(DB_PATH) as conn:
+            conn.executemany(updates[0][0], [args for _, args in updates])
+    return len(updates)
+
+
 def sync_all(token, years=None, log=print):
     """Import every match and practice session for the given years.
 
@@ -369,6 +400,13 @@ def sync_all(token, years=None, log=print):
     db = _DB()
     empty_streak = 0
     try:
+        try:
+            backfill_match_durations(token, log)
+        except PermissionError:
+            raise
+        except Exception as e:
+            stats["errors"] += 1
+            log(f"  ❌ match length backfill: {e}")
         for year in years:
             found = 0
             log(f"📅 {year}")

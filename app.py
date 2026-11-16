@@ -15,9 +15,9 @@ from match_stats import adjusted_stats, darts_stats, mark_double_attempts, per_m
 import doubles_section
 import home_tab
 
-st.set_page_config(page_title="Dart Analysis", page_icon="🎯", layout="wide")
+st.set_page_config(page_title="DartAnaliz", page_icon=":material/target:", layout="wide")
 
-ui_helpers.inject_mobile_css()
+ui_helpers.inject_theme_css()
 
 DB_PATH = "dart.db"
 ENV_FILE = ".env"
@@ -66,8 +66,6 @@ def t(s):
     return s
 
 
-st.title(t("🎯 DartCounter Analysis"))
-ui_helpers.period_picker()
 
 
 @st.cache_data(ttl=60, show_spinner=False)
@@ -89,7 +87,7 @@ def check_token():
 def connect_dartcounter_panel(token_ok, source, updated):
     """Sidebar panel: paste a token, check it against DartCounter, store it encrypted."""
     import dartcounter_api
-    title = t("🔗 Connect DartCounter") + (" ✅" if token_ok else "")
+    title = t("Connect DartCounter") + (" · connected" if token_ok else "")
     with st.expander(title, expanded=not token_ok):
         if token_ok and source == "connected":
             st.success(f"{t('Connected')} · {t('updated')} {updated}")
@@ -129,7 +127,7 @@ def connect_dartcounter_panel(token_ok, source, updated):
                 st.cache_data.clear()
                 st.rerun()
 
-        with st.popover(t("🔑 How to get the token"), width="stretch"):
+        with st.popover(t("How to get the token"), icon=":material/help:", width="stretch"):
             show_token_steps()
 
 
@@ -230,7 +228,7 @@ def refresh_cache():
 # ============================================================
 with st.sidebar:
     if st.session_state.get("role") == "visitor":
-        with st.expander(t("🔑 Admin Login"), expanded=False):
+        with st.expander(t("Admin login"), icon=":material/lock:", expanded=False):
             authenticator.login(
                 location="sidebar",
                 key="admin_login",
@@ -246,10 +244,10 @@ with st.sidebar:
                 st.session_state["username"] = username_input
                 st.rerun()
             elif auth_status is False:
-                st.error(t("❌ Invalid login"))
+                st.error(t("Invalid username or password"))
     else:
-        st.success(f"👤 {st.session_state.get('name', '')}")
-        if st.button(t("🚪 Admin Logout"), width="stretch"):
+        st.success(f"{t('Signed in as')} {st.session_state.get('name', '')}", icon=":material/person:")
+        if st.button(t("Log out"), icon=":material/logout:", width="stretch"):
             # Clear the authenticator's own state and cookie too; otherwise the
             # next rerun sees authentication_status=True and logs straight back in.
             try:
@@ -269,28 +267,28 @@ with st.sidebar:
         connect_dartcounter_panel(token_ok, token_source, token_updated)
         st.divider()
     elif token_ok:
-        st.success(t("✅ DartCounter connected"))
+        st.success(t("DartCounter connected"), icon=":material/check_circle:")
     else:
         st.info(t("DartCounter is not connected yet. An admin can connect it from the sidebar."))
 
     if st.session_state.get("role") == "admin":
-        st.header(t("⚙️ Actions"))
+        st.header(t("Actions"))
 
         if token_ok:
             st.caption(t("Imports every match and practice session from DartCounter. "
                          "Already-stored games are skipped, so syncing again is quick."))
-            if st.button(t("🔄 Sync my DartCounter data"), width="stretch", type="primary") \
+            if st.button(t("Sync DartCounter data"), icon=":material/sync:", width="stretch", type="primary") \
                     or st.session_state.pop("sync_now", False):
                 run_sync()
             st.divider()
 
-        st.subheader(t("📥 Add Match by URL"))
+        st.subheader(t("Add a match by URL"))
         url_input = st.text_input(
             t("DartCounter match URL:"),
             placeholder="https://app.dartcounter.net/statistics/match/games/...",
             key="url_input"
         )
-        if st.button(t("Add This Match"), width="stretch"):
+        if st.button(t("Add match"), icon=":material/add:", width="stretch"):
             if not token_ok:
                 st.error(t("A token is required first."))
             elif url_input.strip():
@@ -327,9 +325,13 @@ with st.sidebar:
 # ============================================================
 
 
+# Page header and the period picker sit above every tab.
+ui_helpers.page_header(PLAYER, last_sync_time())
+ui_helpers.period_picker()
+
 matches, throws, legs = load_data()
 if matches.empty:
-    st.warning(t("No data yet. Connect your DartCounter account in the sidebar, then press 🔄 Sync my DartCounter data."))
+    st.warning(t("No data yet. Connect your DartCounter account in the sidebar, then press Sync DartCounter data."))
     st.stop()
 
 def is_p1(row):
@@ -392,7 +394,6 @@ adj_avg_all, adj_darts_all, total_dbl, total_failed, overall_avg = adjusted_stat
 ds = darts_stats(complete_throws)
 
 RESULT_TXT = {'won': t('Won'), 'lost': t('Lost')}
-RESULT_ICON = {'won': '✅', 'lost': '❌'}
 C = ui_helpers.colors()
 
 
@@ -420,10 +421,12 @@ def no_matches_note():
 # MAIN TABS
 # ============================================================
 tab_home, tab_matches, tab_doubles, tab_practice, tab_coach = st.tabs([
-    t("🏠 Home"), t("📊 Matches"), t("🎯 Doubles"), t("🏋️ Practice"), t("🧠 Coaching")])
+    t(":material/home: Home"), t(":material/leaderboard: Matches"), t(":material/target: Doubles"),
+    t(":material/fitness_center: Practice"), t(":material/psychology: Coaching")])
 
 with tab_home:
-    home_tab.render(efe_complete_all, PLAYER, PLAYER_ID, period_throws, last_sync_time())
+    home_tab.render(efe_complete_all, PLAYER, PLAYER_ID, period_throws, last_sync_time(),
+                    all_matches=efe_matches)
 
 with tab_matches:
     c1, c2, c3, c4 = st.columns(4)
@@ -635,7 +638,7 @@ with tab_matches:
                     with col:
                         st.write(f"**{clean_name(player)}** — {len(p_throws)} {t('turns')}")
                         p_marked = mark_double_attempts(p_throws)
-                        p_marked['zone'] = p_marked['is_dbl'].map({True: '🎯', False: ''})
+                        p_marked['zone'] = p_marked['is_dbl'].map({True: 'Yes', False: ''})
                         p_display = p_marked[['turn', 'remaining_before', 'score_thrown', 'remaining_after', 'zone']]
                         p_display.columns = [t('Turn'), t('Start'), t('Throw'), t('Remaining'), t('Double zone')]
                         st.dataframe(p_display, width="stretch", hide_index=True)

@@ -37,8 +37,10 @@ def _delta(now, before, fmt="{:+.1f}"):
     return fmt.format(now - before)
 
 
-def render(matches, player, player_id, efe_throws, last_sync):
-    """matches: the player's finished matches (all time) with date, opponent, result, avg, adjusted_avg."""
+def render(matches, player, player_id, efe_throws, last_sync, all_matches=None):
+    """matches: the player's finished matches (all time) with date, opponent, result, avg, adjusted_avg.
+    all_matches: every match of the player, unfinished ones too (for time played)."""
+    import playing_time
     from doubles_section import double_stats, ranked
 
     practice = _practice_frames(player, player_id)
@@ -59,9 +61,11 @@ def render(matches, player, player_id, efe_throws, last_sync):
     p_now, p_before = window(practice, this_start), window(practice, last_start, this_start)
     s_now = p_now[p_now["kind"] == "Score Training"]["value"]
     s_before = p_before[p_before["kind"] == "Score Training"]["value"]
+    played = playing_time.sessions(all_matches if all_matches is not None else matches, player, player_id)
+    t_now, t_before = window(played, this_start)["sec"].sum() / 60, window(played, last_start, this_start)["sec"].sum() / 60
 
     st.markdown("##### This week")
-    c1, c2, c3, c4 = st.columns(4)
+    c1, c2, c3, c4, c5 = st.columns(5)
     c1.metric("Matches", len(m_now), delta=_delta(len(m_now), len(m_before), "{:+d}"),
               help="Last 7 days, compared with the 7 days before.")
     c2.metric("Match average", f"{m_now['avg'].mean():.1f}" if len(m_now) else "–",
@@ -74,10 +78,17 @@ def render(matches, player, player_id, efe_throws, last_sync):
               delta=_delta(s_now.mean() if len(s_now) else None,
                            s_before.mean() if len(s_before) else None),
               help="Score Training 3-dart average this week vs last week.")
+    c5.metric("Time played", playing_time.fmt_minutes(t_now),
+              delta=(("+" if t_now > t_before else "−") + playing_time.fmt_minutes(abs(t_now - t_before)))
+              if round(t_now) != round(t_before) else None,
+              help="Matches and practice at their real length, last 7 days vs the 7 days before.")
     if not len(m_now) and not len(p_now):
         last = pd.concat([m["when"], practice["when"]]).max()
         st.caption("Nothing played in the last 7 days"
                    + (f" — last game was {last.strftime('%d %b')}." if pd.notna(last) else "."))
+
+    # ---- Time played per week in the selected period
+    playing_time.render(all_matches if all_matches is not None else matches, player, player_id)
 
     # ---- Doubles snapshot for the selected period
     st.markdown(f"##### Doubles · {ui_helpers.period_label().lower()}")

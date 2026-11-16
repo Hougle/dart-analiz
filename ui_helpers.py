@@ -34,11 +34,22 @@ def colors():
         "neutral": "#8a8984",
         "good": "#0ca30c",
         "bad": "#d03b3b",
-        "text": "#f0efec" if dark else "#0b0b0b",
-        "muted": "#c3c2b7" if dark else "#52514e",
-        "grid": "rgba(255,255,255,0.07)" if dark else "rgba(0,0,0,0.07)",
-        "empty": "#383835" if dark else "#e4e3df",
+        "text": "#e6e9ef" if dark else "#0f172a",
+        "muted": "#98a2b3" if dark else "#5b6576",
+        "grid": "rgba(148,163,184,0.12)" if dark else "rgba(15,23,42,0.07)",
+        "empty": "#2a313c" if dark else "#e3e7ec",
+        "card": "#11151c" if dark else "#ffffff",
+        "border": "#232a35" if dark else "#e1e5eb",
     }
+
+
+def categorical():
+    """Five categorical colours in fixed order (validated for colour-blind separation,
+    adjacent pairs, on both card surfaces). Light-mode slots 3-5 are under 3:1 contrast,
+    so charts using them also need a legend and a table view."""
+    if is_dark():
+        return ["#3987e5", "#d95926", "#199e70", "#c98500", "#d55181"]
+    return ["#2a78d6", "#eb6834", "#1baf7a", "#eda100", "#e87ba4"]
 
 
 def seq_scale():
@@ -119,71 +130,190 @@ def pct(v, digits=1):
     return f"{v:.{digits}f}%"
 
 
-MOBILE_CSS = """
-<style>
-@media (max-width: 768px) {
-    div[data-testid="stHorizontalBlock"] {
-        flex-wrap: wrap !important;
-        gap: 0.4rem !important;
-    }
-    /* Metric rows: two per row on phones instead of one ("column" = Streamlit < 1.40).
-       Rows of charts keep stacking full width. */
-    div[data-testid="stHorizontalBlock"]:has(div[data-testid="stMetric"]) > div[data-testid="stColumn"],
-    div[data-testid="stHorizontalBlock"]:has(div[data-testid="stMetric"]) > div[data-testid="column"] {
-        min-width: calc(50% - 0.4rem) !important;
-        width: calc(50% - 0.4rem) !important;
-        flex: 1 1 calc(50% - 0.4rem) !important;
-    }
-    /* Less empty space above the title. */
-    div[data-testid="stMainBlockContainer"], .block-container {
-        padding-top: 3.2rem !important;
-        padding-left: 1rem !important;
-        padding-right: 1rem !important;
-    }
-    /* Period picker: all four choices on one line. */
-    div[data-testid="stButtonGroup"] button {
-        padding: 0.25rem 0.55rem !important;
-        min-height: 2rem !important;
-    }
-    div[data-testid="stButtonGroup"] button p {
-        font-size: 0.8rem !important;
-    }
-    div[data-testid="stMetricValue"] {
-        font-size: 1.1rem !important;
-    }
-    div[data-testid="stMetricLabel"] {
-        font-size: 0.75rem !important;
-    }
-    div[data-baseweb="tab-list"] {
-        overflow-x: auto !important;
-        flex-wrap: nowrap !important;
-        scrollbar-width: thin;
-    }
-    div[data-baseweb="tab"] {
-        white-space: nowrap !important;
-        font-size: 0.85rem !important;
-        padding: 0.4rem 0.6rem !important;
-    }
-    div[data-testid="stDataFrame"] {
-        font-size: 0.75rem !important;
-    }
-    .js-plotly-plot .plotly .modebar {
-        display: none !important;
-    }
-    section[data-testid="stSidebar"] button {
-        width: 100% !important;
-    }
-    h1 { font-size: 1.4rem !important; }
-    h2 { font-size: 1.15rem !important; }
-    h3 { font-size: 1rem !important; }
+# ------------------------------------------------------------------ THEME
+# Surface tokens per mode. Base colours and fonts come from .streamlit/config.toml;
+# this layer adds cards, tab styles, the page header and phone tweaks.
+_TOKENS = {
+    "dark": dict(bg="#0b0e13", card="#11151c", card2="#161b23", border="#232a35",
+                 text="#e6e9ef", muted="#98a2b3", faint="#6b7585", accent="#4f8ff7",
+                 accent_soft="rgba(79,143,247,0.14)", shadow="none"),
+    "light": dict(bg="#f6f7f9", card="#ffffff", card2="#f1f3f6", border="#e1e5eb",
+                  text="#0f172a", muted="#5b6576", faint="#8a93a3", accent="#2563eb",
+                  accent_soft="rgba(37,99,235,0.08)",
+                  shadow="0 1px 2px rgba(15,23,42,0.04), 0 1px 3px rgba(15,23,42,0.06)"),
 }
+
+
+def tokens():
+    return _TOKENS["dark" if is_dark() else "light"]
+
+
+_THEME_CSS = """
+<style>
+:root {{
+    --da-bg: {bg}; --da-card: {card}; --da-card2: {card2}; --da-border: {border};
+    --da-text: {text}; --da-muted: {muted}; --da-faint: {faint};
+    --da-accent: {accent}; --da-accent-soft: {accent_soft}; --da-shadow: {shadow};
+}}
+
+/* ---------- page frame */
+header[data-testid="stHeader"] {{ background: transparent; }}
+[data-testid="stAppDeployButton"], [data-testid="stHeaderActionElements"] {{ display: none !important; }}
+div[data-testid="stMainBlockContainer"] {{
+    max-width: 1240px; padding-top: 2.75rem; padding-bottom: 4rem;
+}}
+[data-testid="stMetricValue"], [data-testid="stDataFrame"], .da-num {{
+    font-variant-numeric: tabular-nums;
+}}
+
+/* ---------- page header */
+.da-header {{
+    display: flex; align-items: center; justify-content: space-between; gap: 1rem;
+    flex-wrap: wrap; margin: 0 0 0.9rem 0;
+}}
+.da-brand {{ display: flex; align-items: center; gap: 0.8rem; }}
+.da-mark {{
+    width: 40px; height: 40px; border-radius: 11px; flex: none;
+    display: grid; place-items: center;
+    background: var(--da-accent); box-shadow: 0 4px 14px var(--da-accent-soft);
+}}
+.da-title {{
+    font-family: "Inter Tight", "Inter", sans-serif; font-weight: 700;
+    font-size: 1.45rem; letter-spacing: -0.02em; line-height: 1.1; color: var(--da-text);
+}}
+.da-sub {{ color: var(--da-muted); font-size: 0.85rem; margin-top: 2px; }}
+.da-pill {{
+    display: inline-flex; align-items: center; gap: 0.45rem;
+    padding: 0.32rem 0.7rem; border-radius: 999px;
+    border: 1px solid var(--da-border); background: var(--da-card);
+    color: var(--da-muted); font-size: 0.78rem; white-space: nowrap;
+}}
+.da-dot {{ width: 7px; height: 7px; border-radius: 50%; background: #22c55e; }}
+
+/* ---------- cards: metrics, charts, tables, expanders */
+div[data-testid="stMetric"] {{
+    background: var(--da-card); border: 1px solid var(--da-border);
+    border-radius: 12px; padding: 0.85rem 1rem 0.8rem; box-shadow: var(--da-shadow);
+    height: 100%;
+}}
+div[data-testid="stMetricLabel"] p {{
+    color: var(--da-muted); font-size: 0.78rem; font-weight: 500; letter-spacing: 0.01em;
+}}
+div[data-testid="stMetricValue"] {{ letter-spacing: -0.02em; }}
+div[data-testid="stPlotlyChart"] {{
+    background: var(--da-card); border: 1px solid var(--da-border);
+    border-radius: 12px; padding: 0.5rem 0.6rem 0.2rem; box-shadow: var(--da-shadow);
+}}
+div[data-testid="stDataFrame"] {{
+    border-radius: 12px; overflow: hidden; box-shadow: var(--da-shadow);
+}}
+div[data-testid="stExpander"] details {{
+    background: var(--da-card); border-color: var(--da-border); border-radius: 12px;
+}}
+div[data-testid="stAlert"] > div {{ border-radius: 10px; }}
+
+/* ---------- headings */
+h3 {{ letter-spacing: -0.015em; }}
+h4, h5 {{
+    font-family: "Inter", sans-serif !important; font-weight: 600 !important;
+    font-size: 0.95rem !important; letter-spacing: 0 !important;
+    color: var(--da-text) !important; margin-top: 0.6rem !important;
+}}
+div[data-testid="stCaptionContainer"] {{ color: var(--da-muted); }}
+
+/* ---------- main tabs: underline nav (role selectors work across Streamlit versions) */
+div[data-testid="stTabs"] [role="tablist"] {{ gap: 0.15rem; }}
+div[data-testid="stTabs"] .react-aria-SelectionIndicator {{ display: none; }}
+div[data-testid="stTabs"] [role="tab"] {{
+    padding: 0.5rem 0.8rem !important; height: auto !important; border-radius: 0;
+    color: var(--da-muted) !important;
+}}
+div[data-testid="stTabs"] [role="tab"] p {{ font-weight: 500; font-size: 0.92rem; }}
+div[data-testid="stTabs"] [role="tab"]:hover {{ color: var(--da-text) !important; }}
+div[data-testid="stTabs"] [role="tab"][aria-selected="true"] {{
+    color: var(--da-text) !important; box-shadow: inset 0 -2px 0 var(--da-accent);
+}}
+div[data-testid="stTabs"] [role="tab"][aria-selected="true"] p {{ font-weight: 600; }}
+div[data-testid="stTabs"] [role="tab"][aria-selected="true"] [data-testid="stIconMaterial"] {{
+    color: var(--da-accent);
+}}
+
+/* ---------- sub-tabs (tabs inside a tab): pill switcher */
+div[data-testid="stTabs"] [role="tabpanel"] div[data-testid="stTabs"] [role="tablist"] {{
+    display: inline-flex; width: auto; max-width: 100%; gap: 2px; padding: 3px;
+    background: var(--da-card2); border: 1px solid var(--da-border); border-radius: 10px;
+}}
+div[data-testid="stTabs"] [role="tabpanel"] div[data-testid="stTabs"] [role="tablist"]::after {{ display: none; }}
+div[data-testid="stTabs"] [role="tabpanel"] div[data-testid="stTabs"] [role="tab"] {{
+    padding: 0.3rem 0.8rem !important; border-radius: 7px; box-shadow: none;
+}}
+div[data-testid="stTabs"] [role="tabpanel"] div[data-testid="stTabs"] [role="tab"] p {{ font-size: 0.85rem; }}
+div[data-testid="stTabs"] [role="tabpanel"] div[data-testid="stTabs"] [role="tab"][aria-selected="true"] {{
+    background: var(--da-card); box-shadow: 0 1px 2px rgba(0,0,0,0.18); color: var(--da-text) !important;
+}}
+
+/* ---------- sidebar */
+section[data-testid="stSidebar"] h2, section[data-testid="stSidebar"] h3 {{
+    font-size: 0.8rem !important; text-transform: uppercase; letter-spacing: 0.06em;
+    color: var(--da-muted) !important; font-family: "Inter", sans-serif !important;
+}}
+
+/* ---------- phones */
+@media (max-width: 768px) {{
+    div[data-testid="stMainBlockContainer"] {{
+        padding-top: 3.2rem !important; padding-left: 1rem !important; padding-right: 1rem !important;
+    }}
+    div[data-testid="stHorizontalBlock"] {{ flex-wrap: wrap !important; gap: 0.5rem !important; }}
+    /* Metric rows: two per row instead of one. Rows of charts keep stacking full width. */
+    div[data-testid="stHorizontalBlock"]:has(div[data-testid="stMetric"]) > div[data-testid="stColumn"],
+    div[data-testid="stHorizontalBlock"]:has(div[data-testid="stMetric"]) > div[data-testid="column"] {{
+        min-width: calc(50% - 0.25rem) !important; width: calc(50% - 0.25rem) !important;
+        flex: 1 1 calc(50% - 0.25rem) !important;
+    }}
+    div[data-testid="stMetric"] {{ padding: 0.65rem 0.75rem; }}
+    div[data-testid="stMetricValue"] {{ font-size: 1.2rem !important; }}
+    div[data-testid="stMetricLabel"] p {{ font-size: 0.72rem !important; }}
+    div[data-testid="stButtonGroup"] button {{ padding: 0.25rem 0.55rem !important; min-height: 2rem !important; }}
+    div[data-testid="stButtonGroup"] button p {{ font-size: 0.8rem !important; }}
+    div[data-testid="stTabs"] [role="tablist"] {{ overflow-x: auto !important; flex-wrap: nowrap !important; scrollbar-width: none; }}
+    div[data-testid="stTabs"] [role="tab"] {{ padding: 0.45rem 0.6rem !important; white-space: nowrap; }}
+    div[data-testid="stTabs"] [role="tab"] p {{ font-size: 0.85rem; }}
+    div[data-testid="stPlotlyChart"] {{ padding: 0.3rem 0.2rem 0; }}
+    .js-plotly-plot .plotly .modebar {{ display: none !important; }}
+    .da-title {{ font-size: 1.2rem; }}
+    .da-mark {{ width: 34px; height: 34px; border-radius: 9px; }}
+    h1 {{ font-size: 1.4rem !important; }}
+    h2 {{ font-size: 1.15rem !important; }}
+    h3 {{ font-size: 1.02rem !important; }}
+}}
 </style>
 """
 
+# Simple dartboard mark for the header (white on the accent tile).
+_MARK = ('<svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="white" '
+         'stroke-width="2" stroke-linecap="round"><circle cx="12" cy="12" r="9"/>'
+         '<circle cx="12" cy="12" r="5"/><circle cx="12" cy="12" r="1.2" fill="white" stroke="none"/>'
+         '<path d="M12 3v3M12 18v3M3 12h3M18 12h3"/></svg>')
 
-def inject_mobile_css():
-    """Her sayfa başında bir kez çağır."""
-    st.markdown(MOBILE_CSS, unsafe_allow_html=True)
+
+def inject_theme_css():
+    """Call once at the top of the page, after st.set_page_config."""
+    st.markdown(_THEME_CSS.format(**tokens()), unsafe_allow_html=True)
+
+
+inject_mobile_css = inject_theme_css  # old name
+
+
+def page_header(player, last_sync=None):
+    """Brand mark, title and the player / last-sync line at the top of the page."""
+    from html import escape
+    sync = (f'<span class="da-pill"><span class="da-dot"></span>Synced {escape(last_sync)}</span>'
+            if last_sync else "")
+    st.markdown(
+        f'<div class="da-header"><div class="da-brand"><div class="da-mark">{_MARK}</div>'
+        f'<div><div class="da-title">DartAnaliz</div>'
+        f'<div class="da-sub">{escape(player)} · DartCounter performance</div></div></div>'
+        f'{sync}</div>', unsafe_allow_html=True)
 
 
 def metric_grid(metrics, cols=7, key=None):
@@ -198,6 +328,9 @@ def metric_grid(metrics, cols=7, key=None):
         col.metric(**kwargs)
 
 
+CHART_FONT = "Inter, -apple-system, Segoe UI, sans-serif"
+
+
 def chart(fig, key=None, height=340, margin=None):
     """Render a Plotly figure with the shared, theme-aware styling."""
     c = colors()
@@ -206,15 +339,20 @@ def chart(fig, key=None, height=340, margin=None):
         height=height,
         paper_bgcolor="rgba(0,0,0,0)",
         plot_bgcolor="rgba(0,0,0,0)",
-        margin=margin or dict(t=56, b=40, l=48, r=20),
-        title=dict(font=dict(size=15)),
-        legend=dict(orientation="h", yanchor="bottom", y=1.02,
-                    xanchor="right", x=1, font=dict(size=11), title_text=""),
-        hoverlabel=dict(font_size=12),
-        bargap=0.25,
+        font=dict(family=CHART_FONT, size=12, color=c["muted"]),
+        margin=margin or dict(t=60, b=40, l=52, r=20),
+        title=dict(font=dict(family=CHART_FONT, size=14, color=c["text"], weight=600),
+                   x=0, xref="container", xanchor="left", y=0.98, yanchor="top", pad=dict(l=12)),
+        legend=dict(orientation="h", yanchor="bottom", y=1.0, xanchor="right", x=1,
+                    font=dict(size=11, color=c["muted"]), title_text="", bgcolor="rgba(0,0,0,0)"),
+        hoverlabel=dict(bgcolor=c["card"], bordercolor=c["border"],
+                        font=dict(family=CHART_FONT, size=12, color=c["text"])),
+        bargap=0.3,
     )
-    fig.update_xaxes(showgrid=False, linecolor=c["grid"], tickfont=dict(color=c["muted"]))
-    fig.update_yaxes(gridcolor=c["grid"], zeroline=False, tickfont=dict(color=c["muted"]))
+    fig.update_xaxes(showgrid=False, showline=True, linecolor=c["border"], ticks="",
+                     tickfont=dict(color=c["muted"], size=11), title_font=dict(color=c["muted"], size=12))
+    fig.update_yaxes(gridcolor=c["grid"], zeroline=False, showline=False, ticks="",
+                     tickfont=dict(color=c["muted"], size=11), title_font=dict(color=c["muted"], size=12))
     kwargs = {"width": "stretch"}
     if key is not None:
         kwargs["key"] = key
@@ -253,8 +391,8 @@ def daily_trend(df, when, series, title, y_title="", suffix="", unit="sessions",
                  + "<extra></extra>")
         fig.add_trace(go.Scatter(
             x=g["day"], y=g["mean"], mode="lines+markers", name=label, customdata=custom,
-            line=dict(color=color, width=2.5),
-            marker=dict(color=color, size=10),
+            line=dict(color=color, width=2),
+            marker=dict(color=color, size=9, line=dict(color=c["card"], width=2)),
             error_y=dict(type="data", symmetric=False, array=g["max"] - g["mean"],
                          arrayminus=g["mean"] - g["min"], color=c["neutral"], thickness=1.5, width=6)
             if rng else None,
@@ -308,8 +446,8 @@ def dartboard_ring(stats, title, prefix="", value_label="Hit rate", key=None, mi
             custom = [[lab[i], ok[i][0], ok[i][1],
                        pct(ok[i][2] * 100) if ok[i][2] is not None else "no data"] for i in idx]
             marker = (dict(color=[ok[i][2] for i in idx], coloraxis="coloraxis",
-                           line=dict(color=c["grid"], width=1.5))
-                      if is_rated else dict(color=c["empty"], line=dict(color=c["grid"], width=1.5)))
+                           line=dict(color=c["card"], width=2))
+                      if is_rated else dict(color=c["empty"], line=dict(color=c["card"], width=2)))
             note = "" if is_rated else f"<br><i>fewer than {min_n} attempts</i>"
             fig.add_trace(go.Barpolar(
                 theta=[theta[i] for i in idx], r=[r] * len(idx), base=[base] * len(idx),
@@ -323,7 +461,11 @@ def dartboard_ring(stats, title, prefix="", value_label="Hit rate", key=None, mi
     add([0], 0.2, 0, 360, [25])
 
     fig.update_layout(
-        title=title,
+        title=dict(text=title, font=dict(family=CHART_FONT, size=14, color=c["text"], weight=600),
+                   x=0, xref="container", xanchor="left", y=0.98, yanchor="top", pad=dict(l=12)),
+        font=dict(family=CHART_FONT, size=12, color=c["muted"]),
+        hoverlabel=dict(bgcolor=c["card"], bordercolor=c["border"],
+                        font=dict(family=CHART_FONT, size=12, color=c["text"])),
         coloraxis=dict(colorscale=seq_scale(), cmin=0, cmax=vmax,
                        colorbar=dict(title=dict(text=value_label, side="right"), tickformat=".0%",
                                      thickness=12, len=0.75, outlinewidth=0,
@@ -381,7 +523,7 @@ def segment_bars(stats, title, prefix="", value_label="Hit rate", key=None, min_
                       xaxis=dict(type="category", title=""),
                       yaxis=dict(title=value_label, tickformat=".0%" if value_fmt == "pct" else None))
     chart(fig, key=key, height=360)
-    st.caption(f"Orange = the 3 weakest segments. Grey = fewer than {min_n} attempts (not rated).")
+    st.caption(f"Orange bars are the 3 weakest segments. Grey bars have fewer than {min_n} attempts (not rated).")
 
 
 def mobile_dataframe(df, priority_cols=None, height=None, key=None):
