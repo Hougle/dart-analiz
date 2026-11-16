@@ -78,67 +78,78 @@ def calculate_score_metrics(df_turns):
     return std_dev, bounce_back_rate, decay_pct
 
 
+def _pretty(v):
+    """'low_to_high' -> 'Low to high'; keeps the tables free of raw API values."""
+    return str(v).replace("_", " ").capitalize() if pd.notna(v) else ""
+
+
+def session_table(df, columns, key=None):
+    """Sessions table, newest first, with a readable date column."""
+    d = df.copy()
+    if "datetime" in d.columns:
+        d = d.sort_values("datetime", ascending=False)
+        d["datetime"] = d["datetime"].dt.tz_localize(None)
+    cols = [c for c in columns if c in d.columns]
+    out = d[cols].rename(columns=columns)
+    for c in ("Mode", "Ring", "Result"):
+        if c in out.columns:
+            out[c] = out[c].map(_pretty)
+    config = {"Date": ui_helpers.date_column("Date")}
+    if "Hit rate" in out.columns:
+        config["Hit rate"] = st.column_config.NumberColumn("Hit rate", format="%.1f%%")
+    st.dataframe(out, width="stretch", hide_index=True, column_config=config, key=key)
+
+
+def _with_time(df):
+    df = df.copy()
+    if "started_at" in df.columns:
+        df["datetime"] = ui_helpers.local_time(df["started_at"])
+    return df
+
+
+TREND_NOTE = "Dot = the day's average · bar = lowest to highest session that day · dotted line = overall average."
+
+
 def render(player_name, db_path, t_func, player_id=None):
-    st.subheader(t_func("🎯 Practice Modules"))
-    
-    sub1, sub2, sub3 = st.tabs([
-        t_func("🎯 Score Training"),
-        t_func("🔄 Around the Clock"),
-        t_func("🎯 Singles Training")
+    import doubles_training_tab
+
+    sub1, sub2, sub3, sub4 = st.tabs([
+        t_func("Score Training"), t_func("Around the Clock"),
+        t_func("Singles Training"), t_func("Doubles Training"),
     ])
-    
+
     df_p_sessions, df_p_turns, df_a_sessions, df_a_targets = load_all_practice_data()
 
-    # Only the connected player's own sessions (versus games also store opponents).
-    df_p_sessions = only_player(df_p_sessions, player_id, player_name)
+    # Only the connected player's own sessions (versus games also store opponents), in the period.
+    df_p_sessions = ui_helpers.in_period(only_player(df_p_sessions, player_id, player_name))
     if not df_p_turns.empty and {"session_id", "user_id"}.issubset(df_p_turns.columns) \
             and {"session_id", "user_id"}.issubset(df_p_sessions.columns):
         keys = df_p_sessions[["session_id", "user_id"]].drop_duplicates()
         df_p_turns = df_p_turns.merge(keys, on=["session_id", "user_id"], how="inner")
-    df_a_sessions = only_player(df_a_sessions, player_id, player_name)
-    
-    # ==========================================
-    # 1. SCORE TRAINING TAB
-    # ==========================================
+    df_a_sessions = ui_helpers.in_period(only_player(df_a_sessions, player_id, player_name))
+    C = ui_helpers.colors()
+
     with sub1:
-        st.subheader("🎯 Score Training - Performance & Rhythm Analysis")
         if df_p_sessions.empty:
-            st.info("No recorded Score Training sessions found yet.")
+            st.info(f"No Score Training sessions in this period ({ui_helpers.period_label().lower()}).")
         else:
-            df = df_p_sessions.copy()
-            if "started_at" in df.columns and df["started_at"].notna().any():
-                df["datetime"] = pd.to_datetime(df["started_at"], unit="s", utc=True).dt.tz_convert("Europe/Istanbul")
-                df["Date"] = df["datetime"].dt.strftime("%d.%m.%Y")
-            else:
-                df["Date"] = df["date"].astype(str)
-
-            df["Game_No"] = [f"Game #{i+1}" for i in range(len(df))]
-
+            df = _with_time(df_p_sessions)
             std_dev, bounce_back, decay = calculate_score_metrics(df_p_turns)
-            
-            C = ui_helpers.colors()
-            col1, col2, col3 = st.columns(3)
-            col1.metric("📊 Rhythm Fluctuation (Std Dev)",
-                        f"±{std_dev:.1f} pts" if pd.notna(std_dev) else "No Data",
+            col1, col2, col3, col4 = st.columns(4)
+            col1.metric("Sessions", len(df))
+            col2.metric("Rhythm (std dev)", f"±{std_dev:.1f}" if pd.notna(std_dev) else "–",
                         help="Standard deviation of turn scores. Lower = steadier; under 25 is stable.")
-            col2.metric("🧠 Bounce-Back Rate",
-                        ui_helpers.pct(bounce_back) if pd.notna(bounce_back) else "No Data",
+            col3.metric("Bounce-back", ui_helpers.pct(bounce_back) if pd.notna(bounce_back) else "–",
                         help="After a turn of 40 or less, how often the next turn (same session) "
                              "reaches your average turn score.")
-            col3.metric("⚡ Fatigue Curve (Decay)",
-                        f"{decay:+.1f}%" if pd.notna(decay) else "No Data",
+            col4.metric("Fatigue", f"{decay:+.1f}%" if pd.notna(decay) else "–",
                         help="Last 3 turns vs first 3 turns of each session. Negative = you drop off late.")
-
-            st.markdown("---")
 
             if "datetime" in df.columns:
                 ui_helpers.daily_trend(df, "datetime", [("avg_3dart", "3-dart avg", "you")],
-                                       "📈 3-Dart Average per Practice Day", y_title="3-dart average",
+                                       "3-dart average per practice day", y_title="3-dart average",
                                        key="score_trend")
-                st.caption("Dot = the day's average · bar = that day's lowest to highest session · "
-                           "dotted line = overall average.")
-
-            st.markdown("---")
+                st.caption(TREND_NOTE)
 
             if not df_p_turns.empty and "score" in df_p_turns.columns:
                 bands = ui_helpers.score_bands(df_p_turns["score"])
@@ -148,70 +159,47 @@ def render(player_name, db_path, t_func, player_id=None):
                     x=dist_df["Range"], y=dist_df["Count"], marker=dict(color=C["alt"], cornerradius=4),
                     text=dist_df["Count"], textposition="outside", textfont=dict(color=C["text"]),
                     hovertemplate="%{x}: %{y} turns<extra></extra>"))
-                fig_dist.update_layout(title="🎯 Turn Score Distribution (20-point bands)",
+                fig_dist.update_layout(title="Score per turn (20-point bands)",
                                        xaxis_title="Score per turn", yaxis_title="Turns")
                 ui_helpers.chart(fig_dist, key="score_dist")
                 s = pd.to_numeric(df_p_turns["score"], errors="coerce")
                 st.caption(f"100+: {int((s >= 100).sum())} · 140+: {int((s >= 140).sum())} · "
                            f"180: {int((s == 180).sum())} · of {int(s.notna().sum())} turns")
 
-            st.markdown("---")
+            st.markdown("##### Sessions")
+            session_table(df, {"datetime": "Date", "training_mode": "Mode", "avg_3dart": "3-dart avg",
+                               "total_score": "Total score", "darts_thrown": "Darts", "rounds": "Rounds"})
 
-            st.markdown("### 📋 Game Performance Logs")
-            table_cols = [c for c in ["date", "training_mode", "total_score", "avg_3dart", "darts_thrown", "rounds"] if c in df.columns]
-            display_df = df[table_cols].copy()
-            display_df.columns = [col.replace("date", "Date").replace("training_mode", "Mode").replace("total_score", "Total Score").replace("avg_3dart", "3-Dart Avg.").replace("darts_thrown", "Darts Thrown").replace("rounds", "Rounds") for col in display_df.columns]
-            st.dataframe(display_df, use_container_width=True, hide_index=True)
-
-    # ==========================================
-    # 2. AROUND THE CLOCK TAB
-    # ==========================================
     with sub2:
-        st.subheader("🔄 Around the Clock - Bottleneck & Weak Link Analysis")
-        if df_a_sessions.empty:
-            st.info("No recorded Around the Clock sessions found yet.")
+        df_a = _with_time(df_a_sessions) if not df_a_sessions.empty else df_a_sessions
+        if not df_a.empty and "is_cpu" in df_a.columns:  # leave out DartBot sessions
+            df_a = df_a[df_a["is_cpu"].fillna(0).astype(int) == 0]
+        if df_a.empty:
+            st.info(f"No Around the Clock sessions in this period ({ui_helpers.period_label().lower()}).")
         else:
-            df_a = df_a_sessions.copy()
-            # Leave out DartBot sessions (already limited to the connected player above).
-            if "is_cpu" in df_a.columns:
-                df_a = df_a[df_a["is_cpu"].fillna(0).astype(int) == 0]
-            if "started_at" in df_a.columns and df_a["started_at"].notna().any():
-                df_a["datetime"] = pd.to_datetime(df_a["started_at"], unit="s", utc=True).dt.tz_convert("Europe/Istanbul")
-                df_a["Date"] = df_a["datetime"].dt.strftime("%d.%m.%Y")
-            else:
-                df_a["Date"] = df_a["date"].astype(str)
-
-            atc_modes = ["All", "all", "single", "double", "treble"]
-            mode_labels = {"All": "All sessions", "all": "All segments (any ring)",
-                           "single": "Singles", "double": "Doubles", "treble": "Trebles"}
-            selected_mode = st.selectbox("🎯 Select ATC Mode", atc_modes, index=0,
-                                         format_func=lambda m: mode_labels.get(m, m))
-
-            mode_col = "number_segment" if "number_segment" in df_a.columns else ("mode" if "mode" in df_a.columns else None)
-
+            mode_labels = {"All": "All sessions", "all": "Any ring", "single": "Singles",
+                           "double": "Doubles", "treble": "Trebles"}
+            selected_mode = st.segmented_control("Ring", list(mode_labels), format_func=mode_labels.get,
+                                                 default="All", key="atc_mode") or "All"
+            mode_col = next((c for c in ("number_segment", "mode") if c in df_a.columns), None)
             if selected_mode != "All" and mode_col:
-                df_a_filtered = df_a[df_a[mode_col].astype(str).str.lower() == selected_mode.lower()].copy()
+                df_a_filtered = df_a[df_a[mode_col].astype(str).str.lower() == selected_mode].copy()
             else:
                 df_a_filtered = df_a.copy()
 
             if df_a_filtered.empty:
-                st.info(f"No training data found in mode '{selected_mode}'.")
+                st.info(f"No {mode_labels[selected_mode].lower()} sessions in this period.")
             else:
-                C = ui_helpers.colors()
                 avg_hit = df_a_filtered["hit_rate"].mean() if "hit_rate" in df_a_filtered.columns else 0
                 avg_darts = df_a_filtered["darts_thrown"].mean() if "darts_thrown" in df_a_filtered.columns else 0
-
                 c1, c2, c3 = st.columns(3)
-                c1.metric("🎯 Average Hit Rate", ui_helpers.pct(avg_hit),
+                c1.metric("Sessions", len(df_a_filtered))
+                c2.metric("Hit rate", ui_helpers.pct(avg_hit),
                           help="Darts that hit the current target, divided by darts thrown.")
-                c2.metric("🏹 Avg. Darts Spent Per Game", f"{avg_darts:.1f}")
-                c3.metric("📅 Sessions", len(df_a_filtered))
-
-                st.markdown("---")
+                c3.metric("Darts per game", f"{avg_darts:.1f}")
 
                 darts_col = next((c for c in ("darts_needed", "darts_thrown") if c in df_a_targets.columns), None)
                 targets = df_a_targets
-                # Only targets from the sessions currently shown (mode + player filter).
                 if not targets.empty and "atc_user_id" in targets.columns and "atc_user_id" in df_a_filtered.columns:
                     targets = targets[targets["atc_user_id"].isin(df_a_filtered["atc_user_id"])]
 
@@ -224,13 +212,12 @@ def render(player_name, db_path, t_func, player_id=None):
                     seg["value"] = seg["hits"] / seg["attempts"]
                     prefix = {"double": "D", "treble": "T"}.get(selected_mode, "")
 
-                    rated = seg[seg["attempts"] >= 5]
-                    worst = rated.nsmallest(3, "value")
+                    worst = seg[seg["attempts"] >= 5].nsmallest(3, "value")
                     if not worst.empty:
                         names = ", ".join(
                             f"**{prefix}{'Bull' if r['target'] == 25 else int(r['target'])}** "
-                            f"({r['attempts'] / r['hits']:.1f} darts per hit)" for _, r in worst.iterrows())
-                        st.warning(f"⚠️ **Bottleneck:** hardest targets in this selection: {names}")
+                            f"(1 in {r['attempts'] / r['hits']:.1f})" for _, r in worst.iterrows())
+                        st.info(f"Hardest targets here: {names}", icon="🎯")
 
                     left, right = st.columns(2)
                     with left:
@@ -240,26 +227,19 @@ def render(player_name, db_path, t_func, player_id=None):
                         ui_helpers.segment_bars(seg, "Hit rate per segment (1 → 20, Bull)", prefix=prefix,
                                                 key=f"atc_bars_{selected_mode}")
 
-                st.markdown("---")
-
                 if "datetime" in df_a_filtered.columns and "hit_rate" in df_a_filtered.columns:
-                    ui_helpers.daily_trend(
-                        df_a_filtered, "datetime", [("hit_rate", "Hit rate", "you")],
-                        f"📈 Hit Rate per Practice Day ({mode_labels.get(selected_mode, selected_mode)})",
-                        y_title="Hit rate", suffix="%", key=f"atc_trend_{selected_mode}")
-                    st.caption("Dot = the day's average · bar = that day's lowest to highest session · "
-                               "dotted line = overall average.")
+                    ui_helpers.daily_trend(df_a_filtered, "datetime", [("hit_rate", "Hit rate", "you")],
+                                           f"Hit rate per practice day ({mode_labels[selected_mode].lower()})",
+                                           y_title="Hit rate", suffix="%", key=f"atc_trend_{selected_mode}")
+                    st.caption(TREND_NOTE)
 
-                st.markdown("---")
+                st.markdown("##### Sessions")
+                session_table(df_a_filtered, {"datetime": "Date", "number_segment": "Ring", "mode": "Mode",
+                                              "darts_thrown": "Darts", "darts_hit": "Hits",
+                                              "hit_rate": "Hit rate"})
 
-                st.markdown("### 📋 ATC Game History and Performance Details")
-                table_cols_a = [c for c in ["date", "mode", "total_score", "darts_thrown", "darts_hit", "hit_rate"] if c in df_a_filtered.columns]
-                display_df_a = df_a_filtered[table_cols_a].copy()
-                display_df_a.columns = [col.replace("date", "Date").replace("mode", "Mode").replace("total_score", "Score").replace("darts_thrown", "Darts Thrown").replace("darts_hit", "Hits").replace("hit_rate", "Hit Rate (%)") for col in display_df_a.columns]
-                st.dataframe(display_df_a, use_container_width=True, hide_index=True)
-
-    # ==========================================
-    # 3. SINGLES TRAINING TAB
-    # ==========================================
     with sub3:
         render_singles_tab(player_id=player_id, player_name=player_name)
+
+    with sub4:
+        doubles_training_tab.render(player_name, player_id)

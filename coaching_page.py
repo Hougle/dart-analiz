@@ -30,67 +30,105 @@ def calculate_advanced_metrics(df_turns, df_sessions):
 
     return consistency_index, bounce_back_rate, decay_pct, overall_avg
 
-def render_coaching_page(player_name, t_func, player_id=None):
-    st.subheader("🧠 Professional Coaching & Performance Analytics")
-    st.markdown(f"**Player:** {player_name} | This panel deeply analyzes your game rhythm, mental recovery speed, and fatigue thresholds.")
-    st.markdown("---")
+def _observations(consistency_idx, bounce_back, decay, best_double, worst_double):
+    """Strengths and focus areas. Each focus carries a concrete drill; gap = how far below target."""
+    strengths, focus = [], []
+    if consistency_idx >= 75:
+        strengths.append(("Steady scoring", f"Consistency index {consistency_idx:.0f}%: your visits stay close "
+                                            "to your average."))
+    else:
+        focus.append(((75 - consistency_idx) / 75, "Steadier scoring",
+                      f"Consistency index {consistency_idx:.0f}% (target 75%).",
+                      "3 × 10 visits at T20. Count how many land within 20 points of your average "
+                      "and try to beat that count next session."))
+    if bounce_back >= 50:
+        strengths.append(("Strong recovery", f"After a visit under 40 you reach your average again "
+                                             f"{bounce_back:.0f}% of the time."))
+    else:
+        focus.append(((50 - bounce_back) / 50, "Bouncing back after a bad visit",
+                      f"After a visit under 40 you reach your average {bounce_back:.0f}% of the time (target 50%).",
+                      "After every visit under 40: step off, take one breath, reset your stance. "
+                      "Practise it in Score Training until it's automatic."))
+    if decay >= -5:
+        strengths.append(("Good stamina", "You keep your level to the end of a session "
+                                          f"({decay:+.1f}% last 3 vs first 3 turns)."))
+    else:
+        focus.append(((-5 - decay) / 20, "Holding your level late in a session",
+                      f"Your last 3 turns are {abs(decay):.1f}% below your first 3.",
+                      "Add 5 extra visits to the end of each Score Training session and "
+                      "track only those."))
+    if best_double is not None:
+        strengths.append((f"{best_double['name']} is your banker",
+                          f"{ui_helpers.pct(best_double['value'] * 100)} — 1 hit in "
+                          f"{best_double['per_hit']:.1f} darts. Leave yourself "
+                          f"{'50 (Bull)' if best_double['target'] == 25 else int(best_double['target']) * 2} "
+                          "when you can."))
+    if worst_double is not None and worst_double["per_hit"]:
+        focus.append((0.3, f"{worst_double['name']} costs you darts",
+                      f"1 hit in {worst_double['per_hit']:.1f} darts "
+                      f"({ui_helpers.pct(worst_double['value'] * 100)}).",
+                      f"50 darts at {worst_double['name']} at the start of each practice session, "
+                      "counting hits. Aim for one more hit each week."))
+    focus.sort(key=lambda f: f[0], reverse=True)
+    return strengths, focus
 
-    # Data: same cached loader as the Practice tab, limited to the connected player
+
+def render_coaching_page(player_name, t_func, player_id=None, efe_throws=None):
+    # Data: same cached loader as the Practice tab, limited to the connected player and the period
     df_sessions, df_turns, _, _ = load_all_practice_data()
-    df_sessions = only_player(df_sessions, player_id, player_name)
+    df_sessions = ui_helpers.in_period(only_player(df_sessions, player_id, player_name))
     if not df_turns.empty and {"session_id", "user_id"}.issubset(df_turns.columns) \
             and {"session_id", "user_id"}.issubset(df_sessions.columns):
         keys = df_sessions[["session_id", "user_id"]].drop_duplicates()
         df_turns = df_turns.merge(keys, on=["session_id", "user_id"], how="inner")
 
-    if df_sessions.empty or df_turns.empty:
-        st.warning("Not enough practice data to generate coaching analysis. Try doing some Score Training first!")
+    if df_sessions.empty or df_turns.empty or "score" not in df_turns.columns:
+        st.info(f"Not enough Score Training data in this period ({ui_helpers.period_label().lower()}) "
+                "for coaching. Pick a longer period or play a Score Training session.")
         return
 
-    if "score" not in df_turns.columns:
-        st.error(f"Score column could not be found. Available columns in practice_turns: {list(df_turns.columns)}")
-        return
-
-    score_col = "score"
-
-    # Calculate Metrics
     consistency_idx, bounce_back, decay, overall_avg = calculate_advanced_metrics(df_turns, df_sessions)
 
-    # Top Metric Cards (explanations live in the ⓘ tooltip, not in fake deltas)
     col1, col2, col3, col4 = st.columns(4)
-    col1.metric("🎯 Consistency Index", ui_helpers.pct(consistency_idx),
+    col1.metric("Consistency", ui_helpers.pct(consistency_idx, 0),
                 help="100 − coefficient of variation of turn scores. Higher = steadier scoring.")
-    col2.metric("🧠 Recovery Rate", ui_helpers.pct(bounce_back),
+    col2.metric("Recovery", ui_helpers.pct(bounce_back, 0),
                 help="After a turn of 40 or less, how often the next turn in the same session "
                      "reaches your average turn score.")
-    col3.metric("⚡ Fatigue Curve", f"{decay:+.1f}%",
+    col3.metric("Fatigue", f"{decay:+.1f}%",
                 help="Average of the last 3 turns vs the first 3 turns of each session.")
-    col4.metric("📊 Overall 3-Dart Avg.", f"{overall_avg:.1f}",
+    col4.metric("Practice avg", f"{overall_avg:.1f}",
                 help="Mean of your Score Training session averages.")
 
-    st.markdown("---")
+    best_double = worst_double = None
+    if efe_throws is not None:
+        from doubles_section import double_stats, ranked
+        r = ranked(double_stats(efe_throws, player_name, player_id), 20)
+        if len(r) >= 2:
+            best_double, worst_double = r.iloc[0], r.iloc[-1]
+    strengths, focus = _observations(consistency_idx, bounce_back, decay, best_double, worst_double)
 
-    # Coaching observations, shown with status colour + icon + label
-    st.subheader("💡 Coaching Observations & Recommendations")
-    if consistency_idx >= 75:
-        st.success("**Great Consistency:** Your throws are highly stabilized with minimal score fluctuations.", icon="✅")
-    else:
-        st.warning("**Volatile Rhythm:** Sharp fluctuations detected in your scores. Focus on routine "
-                   "training to build mechanical consistency.", icon="⚠️")
-    if bounce_back >= 50:
-        st.success("**Strong Recovery:** You often bounce back after low-scoring turns (≤ 40).", icon="✅")
-    else:
-        st.error("**Weak Bounce-Back:** Struggling to reach your average in the turn after a bad one. "
-                 "Practise a reset routine between visits.", icon="🔴")
-    if decay < -5:
-        st.warning("**Fatigue:** Scores drop towards the end of sessions. Stamina training is recommended.", icon="⚠️")
-    else:
-        st.success("**Good Stamina:** You keep your level to the end of the session.", icon="✅")
-
-    st.markdown("---")
+    left, right = st.columns(2)
+    with left:
+        if strengths:
+            title, text = strengths[0]
+            st.success(f"**Strength — {title}**  \n{text}", icon="💪")
+    with right:
+        if focus:
+            _, title, text, drill = focus[0]
+            st.info(f"**Focus — {title}**  \n{text}  \n**Drill:** {drill}", icon="🎯")
+        else:
+            st.success("**No weak spot stands out.** Keep your current routine.", icon="✅")
+    rest = strengths[1:] + [f[1:] for f in focus[1:]]
+    if rest:
+        with st.expander(f"All observations ({len(rest)} more)"):
+            for item in strengths[1:]:
+                st.markdown(f"💪 **{item[0]}** — {item[1]}")
+            for _, title, text, drill in focus[1:]:
+                st.markdown(f"🎯 **{title}** — {text}  \n*Drill:* {drill}")
 
     # Trends: one small chart per measure (different scales never share an axis)
-    st.subheader("📈 Are you improving? Trends per practice day")
+    st.subheader("Are you improving?")
     turns = df_turns.copy()
     turns["score"] = pd.to_numeric(turns["score"], errors="coerce")
     if "session_id" not in turns.columns or "session_id" not in df_sessions.columns:

@@ -253,6 +253,21 @@ def validate_token(token):
         return False, f"Could not reach DartCounter to check the token: {e}", None
 
 
+def save_setting(key, value):
+    now = datetime.now().strftime("%Y-%m-%d %H:%M")
+    _settings_sql("INSERT OR REPLACE INTO app_settings (key, value, updated_at) VALUES (?, ?, ?)",
+                  [key, str(value), now])
+
+
+def get_setting(key):
+    """Return the stored value for key, or None."""
+    try:
+        _, rows = _settings_sql("SELECT value FROM app_settings WHERE key = ?", [key])
+        return rows[0][0] if rows else None
+    except Exception:
+        return None
+
+
 def save_connected_player(user_id, player_name):
     now = datetime.now().strftime("%Y-%m-%d %H:%M")
     for key, val in (("player_user_id", str(user_id)), ("player_name", player_name or "")):

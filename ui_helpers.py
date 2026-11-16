@@ -59,6 +59,59 @@ def score_bands(scores):
                   labels=SCORE_BAND_LABELS, right=False)
 
 
+# ------------------------------------------------------------------ PERIOD
+TZ = "Europe/Istanbul"
+PERIODS = {"7d": ("Last 7 days", 7), "30d": ("Last 30 days", 30),
+           "90d": ("Last 90 days", 90), "all": ("All time", None)}
+
+
+def period_picker():
+    """One period control for the whole app (stored in st.session_state['period'])."""
+    st.segmented_control("Period", options=list(PERIODS), format_func=lambda k: PERIODS[k][0],
+                         default="all", key="period", label_visibility="collapsed")
+
+
+def period_label():
+    return PERIODS[st.session_state.get("period") or "all"][0]
+
+
+def period_start():
+    """Start of the selected period as a tz-aware Timestamp, or None for all time."""
+    days = PERIODS[st.session_state.get("period") or "all"][1]
+    if days is None:
+        return None
+    return pd.Timestamp.now(tz=TZ).normalize() - pd.Timedelta(days=days - 1)
+
+
+def local_time(unix_seconds):
+    return pd.to_datetime(pd.to_numeric(unix_seconds, errors="coerce"), unit="s", utc=True).dt.tz_convert(TZ)
+
+
+def match_time(date_strings):
+    """Match dates are stored as local 'YYYY-MM-DD HH:MM' strings."""
+    return pd.to_datetime(date_strings, errors="coerce").dt.tz_localize(TZ, ambiguous="NaT",
+                                                                        nonexistent="NaT")
+
+
+def in_period(df, unix_col="started_at", date_col=None, start=None):
+    """Rows inside the selected period. Practice tables use Unix seconds, matches use date strings."""
+    start = start if start is not None else period_start()
+    if start is None or df is None or df.empty:
+        return df
+    if date_col and date_col in df.columns:
+        when = match_time(df[date_col])
+    elif unix_col in df.columns:
+        when = local_time(df[unix_col])
+    else:
+        return df
+    return df[when >= start]
+
+
+def date_column(label="Date"):
+    """Readable, still sortable date column for st.dataframe: '13 Nov 2026, 16:58'."""
+    return st.column_config.DatetimeColumn(label, format="D MMM YYYY, HH:mm")
+
+
 def pct(v, digits=1):
     """Consistent percent formatting: 31.8%."""
     if v is None or (isinstance(v, float) and math.isnan(v)):
@@ -144,7 +197,7 @@ def chart(fig, key=None, height=340, margin=None):
     )
     fig.update_xaxes(showgrid=False, linecolor=c["grid"], tickfont=dict(color=c["muted"]))
     fig.update_yaxes(gridcolor=c["grid"], zeroline=False, tickfont=dict(color=c["muted"]))
-    kwargs = {"use_container_width": True}
+    kwargs = {"width": "stretch"}
     if key is not None:
         kwargs["key"] = key
     st.plotly_chart(fig, **kwargs)
@@ -270,7 +323,7 @@ def dartboard_ring(stats, title, prefix="", value_label="Hit rate", key=None, mi
         margin=dict(t=56, b=24, l=24, r=24),
         height=420,
     )
-    kwargs = {"use_container_width": True}
+    kwargs = {"width": "stretch"}
     if key is not None:
         kwargs["key"] = key
     st.plotly_chart(fig, **kwargs)
@@ -315,7 +368,7 @@ def segment_bars(stats, title, prefix="", value_label="Hit rate", key=None, min_
 
 def mobile_dataframe(df, priority_cols=None, height=None, key=None):
     """Mobilde öncelikli kolonları gösterir; geri kalanı expander'a koyar."""
-    kwargs = {"use_container_width": True, "hide_index": True}
+    kwargs = {"width": "stretch", "hide_index": True}
     if height is not None:
         kwargs["height"] = height
     if key is not None:
@@ -328,7 +381,7 @@ def mobile_dataframe(df, priority_cols=None, height=None, key=None):
             others = [c for c in df.columns if c not in available]
             if others:
                 with st.expander(f"➕ Tüm kolonlar ({len(others)} ek)"):
-                    st.dataframe(df[others], use_container_width=True,
+                    st.dataframe(df[others], width="stretch",
                                  hide_index=True)
             return
     st.dataframe(df, **kwargs)

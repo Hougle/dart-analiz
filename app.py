@@ -2,6 +2,7 @@
 🎯 Dart Analysis — Streamlit Main Application File
 """
 import re
+from datetime import datetime
 import streamlit as st
 import sqlite3
 import pandas as pd
@@ -11,6 +12,7 @@ import practice_tab
 import coaching_page
 import ui_helpers
 import doubles_section
+import home_tab
 
 st.set_page_config(page_title="Dart Analysis", page_icon="🎯", layout="wide")
 
@@ -63,7 +65,8 @@ def t(s):
     return s
 
 
-st.title(t("🎯 DartCounter Analysis Dashboard"))
+st.title(t("🎯 DartCounter Analysis"))
+ui_helpers.period_picker()
 
 
 @st.cache_data(ttl=60, show_spinner=False)
@@ -102,7 +105,7 @@ def connect_dartcounter_panel(token_ok, source, updated):
             token_in = st.text_input(t("DartCounter token"), type="password",
                                      placeholder="12345678|AbCdEf...",
                                      help=t("Paste the value after 'Bearer ' (see the steps below)."))
-            submitted = st.form_submit_button(t("Connect"), use_container_width=True, type="primary")
+            submitted = st.form_submit_button(t("Connect"), width="stretch", type="primary")
         if submitted:
             with st.spinner(t("Checking with DartCounter...")):
                 ok, msg, ident = dartcounter_api.validate_token(token_in)
@@ -120,12 +123,12 @@ def connect_dartcounter_panel(token_ok, source, updated):
                 st.error(t(msg))
 
         if source == "connected":
-            if st.button(t("Disconnect"), use_container_width=True):
+            if st.button(t("Disconnect"), width="stretch"):
                 dartcounter_api.disconnect_token()
                 st.cache_data.clear()
                 st.rerun()
 
-        with st.popover(t("🔑 How to get the token"), use_container_width=True):
+        with st.popover(t("🔑 How to get the token"), width="stretch"):
             show_token_steps()
 
 
@@ -191,13 +194,23 @@ def run_sync():
         new = (stats["matches"] + stats["score"] + stats["atc"] + stats["singles"]
                + stats.get("doubles", 0))
         status.update(label=f"{t('Sync done')}: {new} {t('new games')}", state="complete", expanded=False)
+    try:
+        dartcounter_api.save_setting("last_sync", datetime.now().strftime("%d %b %Y, %H:%M"))
+    except Exception:
+        pass
     st.success(f"{stats['matches']} {t('matches')} · {stats['score']} Score Training · "
                f"{stats['atc']} Around the Clock · {stats['singles']} Singles · "
                f"{stats.get('doubles', 0)} Doubles Training"
                + (f" · {stats['errors']} {t('errors')}" if stats["errors"] else ""))
+    st.cache_data.clear()  # also refreshes the "last synced" time
     if new:
-        st.cache_data.clear()
         st.rerun()
+
+
+@st.cache_data(ttl=60, show_spinner=False)
+def last_sync_time():
+    import dartcounter_api
+    return dartcounter_api.get_setting("last_sync")
 
 
 def make_label(date, opponent, n=12):
@@ -289,7 +302,7 @@ with st.sidebar:
                 st.error(t("❌ Invalid login"))
     else:
         st.success(f"👤 {st.session_state.get('name', '')}")
-        if st.button(t("🚪 Admin Logout"), use_container_width=True):
+        if st.button(t("🚪 Admin Logout"), width="stretch"):
             # Clear the authenticator's own state and cookie too; otherwise the
             # next rerun sees authentication_status=True and logs straight back in.
             try:
@@ -319,7 +332,7 @@ with st.sidebar:
         if token_ok:
             st.caption(t("Imports every match and practice session from DartCounter. "
                          "Already-stored games are skipped, so syncing again is quick."))
-            if st.button(t("🔄 Sync my DartCounter data"), use_container_width=True, type="primary") \
+            if st.button(t("🔄 Sync my DartCounter data"), width="stretch", type="primary") \
                     or st.session_state.pop("sync_now", False):
                 run_sync()
             st.divider()
@@ -330,7 +343,7 @@ with st.sidebar:
             placeholder="https://app.dartcounter.net/statistics/match/games/...",
             key="url_input"
         )
-        if st.button(t("Add This Match"), use_container_width=True):
+        if st.button(t("Add This Match"), width="stretch"):
             if not token_ok:
                 st.error(t("A token is required first."))
             elif url_input.strip():
@@ -360,6 +373,8 @@ with st.sidebar:
         st.divider()
 
     st.caption(f"{t('Player')}: **{PLAYER}**")
+    _synced = last_sync_time()
+    st.caption(f"{t('Last synced')}: " + (_synced or t("not from the app yet")))
     import dartcounter_api as _dc
     st.caption(f"{t('Database')}: " + ("Turso" if _dc._turso_available() else f"`{DB_PATH}`"))
 # ============================================================
@@ -430,257 +445,233 @@ def per_match_stats(marked):
     return g[cols]
 
 
-efe_marked = mark_double_attempts(efe_throws) if not efe_throws.empty else efe_throws
-efe_matches = efe_matches.merge(per_match_stats(efe_marked), on='match_id', how='left')
+efe_matches = efe_matches.merge(
+    per_match_stats(mark_double_attempts(efe_throws) if not efe_throws.empty else efe_throws.assign(is_dbl=False)),
+    on='match_id', how='left')
 efe_matches['avg'] = efe_matches['calculated_avg'].fillna(0).round(2)
 efe_matches['adjusted_avg'] = efe_matches['adjusted_avg'].fillna(0).round(2)
 efe_matches['opp_avg'] = efe_matches['opp_avg'].fillna(0).round(2)
-efe_complete = efe_matches[efe_matches['result'].notna()].copy()
+efe_complete_all = efe_matches[efe_matches['result'].notna()].copy()
 
-wins = (efe_complete['result'] == 'won').sum()
-losses = (efe_complete['result'] == 'lost').sum()
+# Everything below the Home tab follows the period picker.
+efe_complete = ui_helpers.in_period(efe_complete_all, date_col='date').copy()
+period_throws = efe_throws[efe_throws['match_id'].isin(ui_helpers.in_period(efe_matches, date_col='date')['match_id'])]
+efe_marked = mark_double_attempts(period_throws) if not period_throws.empty else period_throws
+
+wins = int((efe_complete['result'] == 'won').sum())
+losses = int((efe_complete['result'] == 'lost').sum())
 total_matches = len(efe_complete)
 win_rate = (wins / total_matches * 100) if total_matches > 0 else 0
 
 # Headline numbers use the same finished matches as the match and win counts.
-complete_throws = efe_throws[efe_throws['match_id'].isin(efe_complete['match_id'])]
+complete_throws = period_throws[period_throws['match_id'].isin(efe_complete['match_id'])]
 adj_avg_all, adj_darts_all, total_dbl, total_failed, overall_avg = adjusted_stats(complete_throws)
 efe_180s = int((complete_throws['score_thrown'] == 180).sum())
 efe_100s = int((complete_throws['score_thrown'] >= 100).sum())
 
-RESULT_TXT = {'won': t('✅ Won'), 'lost': t('❌ Lost')}
+RESULT_TXT = {'won': t('Won'), 'lost': t('Lost')}
 RESULT_ICON = {'won': '✅', 'lost': '❌'}
-MAIN_COLS = [t('Date'), t('Opponent'), t('Result'), t('Raw Avg.'), t('Adjusted'), t('Opp. Avg.')]
-RAW_COLS = ['date', 'opponent', 'result', 'avg', 'adjusted_avg', 'opp_avg']
+C = ui_helpers.colors()
 
-ui_helpers.metric_grid([
-    {"label": t("Total Matches"), "value": total_matches},
-    {"label": t("Wins"), "value": wins},
-    {"label": t("Losses"), "value": losses},
-    {"label": t("Win %"), "value": f"{win_rate:.1f}%"},
-    {"label": t("Raw Avg."), "value": f"{overall_avg:.2f}"},
-    {"label": t("Adjusted"), "value": f"{adj_avg_all:.2f}",
-     "delta": f"{adj_avg_all - overall_avg:+.2f}"},
-    {"label": t("180s / 100+"), "value": f"{efe_180s} / {efe_100s}"},
-], cols=7)
 
-st.divider()
+def match_table(df, extra=None, key=None):
+    """Matches as a table: readable sortable dates, plain column names, newest first."""
+    cols = {'date': t('Date'), 'opponent': t('Opponent'), 'result': t('Result'),
+            'avg': t('Average'), 'adjusted_avg': t('Adjusted'), 'opp_avg': t('Opponent avg')}
+    cols.update(extra or {})
+    d = df[list(cols)].copy()
+    d['date'] = pd.to_datetime(d['date'], errors='coerce')
+    d['result'] = d['result'].map(RESULT_TXT)
+    d = d.rename(columns=cols)
+    config = {t('Date'): ui_helpers.date_column(t('Date'))}
+    for c in (t('Average'), t('Adjusted'), t('Opponent avg')):
+        config[c] = st.column_config.NumberColumn(c, format="%.2f")
+    st.dataframe(d, width="stretch", hide_index=True, column_config=config, key=key)
+
+
+def no_matches_note():
+    st.info(t("No matches in this period") + f" ({ui_helpers.period_label().lower()}). "
+            + t("Pick a longer period at the top."))
+
 
 # ============================================================
 # MAIN TABS
 # ============================================================
-tab1, tab2, tab3, tab4, tab5, tab6, tab7, tab8 = st.tabs([
-    t("🎯 Practice"), t("📊 Overview"), t("📈 Progress"),
-    t("👥 Opponents"), t("🎯 Double Trouble"), t("🏆 Best / Worst"),
-    t("📋 Match List"), t("🧠 Coaching & Analytics")
-])
+tab_home, tab_matches, tab_doubles, tab_practice, tab_coach = st.tabs([
+    t("🏠 Home"), t("📊 Matches"), t("🎯 Doubles"), t("🏋️ Practice"), t("🧠 Coaching")])
 
-with tab1:
-    practice_tab.render(PLAYER, DB_PATH, t, player_id=PLAYER_ID)
+with tab_home:
+    home_tab.render(efe_complete_all, PLAYER, PLAYER_ID, period_throws, last_sync_time())
 
-C = ui_helpers.colors()
+with tab_matches:
+    c1, c2, c3, c4 = st.columns(4)
+    c1.metric(t("Matches"), total_matches)
+    c2.metric(t("Win %"), ui_helpers.pct(win_rate), help=f"{wins} {t('won')} · {losses} {t('lost')}")
+    c3.metric(t("Average"), f"{overall_avg:.2f}", help=t("Raw 3-dart average: total score ÷ darts × 3."))
+    c4.metric(t("Adjusted"), f"{adj_avg_all:.2f}",
+              help=t("3-dart average without double-zone turns (remaining 40 or less, or 50). "
+                     "It shows your scoring power.") + f" {adj_avg_all - overall_avg:+.2f}")
+    st.caption(f"{wins} {t('won')} · {losses} {t('lost')} · 180s: {efe_180s} · 100+: {efe_100s} · "
+               f"{ui_helpers.period_label()}")
 
-with tab2:
-    st.subheader(t("Last 10 Matches"))
-    recent = efe_complete.head(10)[['date', 'opponent', 'result', 'avg', 'opp_avg']].copy()
-    recent['result'] = recent['result'].map(RESULT_TXT)
-    recent.columns = [t('Date'), t('Opponent'), t('Result'), t('Raw Avg.'), t('Opp. Avg.')]
-    st.dataframe(recent, use_container_width=True, hide_index=True)
+    m_over, m_prog, m_opp, m_best, m_list = st.tabs([
+        t("Overview"), t("Progress"), t("Opponents"), t("Best & worst"), t("Match list")])
 
-    st.subheader(t("Throw Score Distribution"))
-    if not efe_marked.empty:
-        dist = efe_marked.assign(
-            band=ui_helpers.score_bands(efe_marked['score_thrown']),
-            kind=efe_marked['is_dbl'].map({False: t('Scoring turns'), True: t('Double-zone turns')}))
-        dist = (dist.groupby(['band', 'kind'], observed=False).size()
-                .reset_index(name='count'))
-        fig = go.Figure()
-        for kind, color in ((t('Scoring turns'), C['alt']), (t('Double-zone turns'), C['neutral'])):
-            d = dist[dist['kind'] == kind]
-            fig.add_trace(go.Bar(x=d['band'].astype(str), y=d['count'], name=kind,
-                                 marker=dict(color=color, cornerradius=4),
-                                 hovertemplate="%{x}: %{y} " + t("turns") + "<extra>" + kind + "</extra>"))
-        fig.update_layout(barmode='stack', title=t("Score per turn, in 20-point bands"),
-                          xaxis_title=t('Score'), yaxis_title=t('Turns'))
-        ui_helpers.chart(fig, key="overview_bands")
-        st.caption(t("Double-zone turns (remaining ≤ 40) score low by nature; they are shown separately "
-                     "so they don't hide your scoring power."))
-
-with tab3:
-    st.subheader(t("Average Over Time — Raw vs Adjusted"))
-    efe_sorted = efe_complete.sort_values('date').copy()
-    if not efe_sorted.empty:
-        efe_sorted['when'] = pd.to_datetime(efe_sorted['date'], errors='coerce')
-        ui_helpers.daily_trend(
-            efe_sorted, 'when',
-            [('adjusted_avg', t('Adjusted average'), 'you'), ('avg', t('Raw average'), 'alt')],
-            f"{PLAYER} — {t('Raw vs Adjusted Average per Match Day')}",
-            y_title=t('3-dart average'), unit=t("matches"), key="progress_avg", height=380, decimals=2)
-        st.caption(t("Each dot is the average of that day's matches. "
-                     "Adjusted leaves out double-zone turns."))
-
-    st.subheader(t("Average Performance by Turn"))
-    if not efe_marked.empty:
-        scoring = efe_marked[~efe_marked['is_dbl']]
-        by_turn = scoring.groupby('turn')['score_thrown'].agg(['mean', 'count']).reset_index()
-        by_turn = by_turn[by_turn['count'] >= 10]
-        fig3 = go.Figure(go.Bar(
-            x=by_turn['turn'], y=by_turn['mean'].round(1),
-            marker=dict(color=C['alt'], cornerradius=4), customdata=by_turn['count'],
-            hovertemplate=t("Turn") + " %{x}: %{y:.1f}<br>%{customdata} " + t("turns") + "<extra></extra>"))
-        fig3.update_layout(title=t("Average score by turn number (scoring turns only)"),
-                           xaxis=dict(title=t('Turn'), dtick=1), yaxis_title=t('Average Score'))
-        ui_helpers.chart(fig3, key="by_turn")
-        st.caption(t("Only turns before the double zone, and only turn numbers with at least 10 samples."))
-
-with tab4:
-    st.subheader(t("Stats by Opponent"))
-    opp_stats = efe_complete.groupby('opponent').agg(
-        Mac=('match_id', 'count'),
-        Galibiyet=('result', lambda x: (x == 'won').sum()),
-        Maglubiyet=('result', lambda x: (x == 'lost').sum()),
-        Ham_Ort=('avg', 'mean'),
-        Adjusted=('adjusted_avg', 'mean'),
-        Rakip_Ort=('opp_avg', 'mean')
-    ).reset_index()
-    opp_stats['Kazanma_Yuzde'] = (opp_stats['Galibiyet'] / opp_stats['Mac'] * 100).round(1)
-    for col in ('Ham_Ort', 'Adjusted', 'Rakip_Ort'):
-        opp_stats[col] = opp_stats[col].round(2)
-    opp_stats = opp_stats.sort_values('Mac', ascending=False)
-    opp_display = opp_stats.rename(columns={
-        'opponent': t('Opponent'), 'Mac': t('Match'), 'Galibiyet': t('Wins'),
-        'Maglubiyet': t('Losses'), 'Ham_Ort': t('Raw Avg.'),
-        'Adjusted': t('Adjusted'), 'Rakip_Ort': t('Opp. Avg.'),
-        'Kazanma_Yuzde': t('Win %')})
-    st.dataframe(opp_display, use_container_width=True, hide_index=True)
-
-    st.subheader(t("My Average vs Opponent's Average"))
-    if not opp_stats.empty:
-        o = opp_stats.sort_values('Ham_Ort')
-        o['ylabel'] = o.apply(lambda r: f"{r['opponent']}  ({int(r['Galibiyet'])}–{int(r['Maglubiyet'])})", axis=1)
-        fig = go.Figure()
-        for _, r in o.iterrows():
-            fig.add_trace(go.Scatter(x=[r['Ham_Ort'], r['Rakip_Ort']], y=[r['ylabel']] * 2, mode='lines',
-                                     line=dict(color=C['grid'], width=6), showlegend=False, hoverinfo='skip'))
-        hover = list(zip(o['Mac'], o['Galibiyet'], o['Maglubiyet']))
-        fig.add_trace(go.Scatter(x=o['Rakip_Ort'], y=o['ylabel'], mode='markers', name=t('Opponent'),
-                                 marker=dict(color=C['neutral'], size=12), customdata=hover,
-                                 hovertemplate=t("Opponent") + ": %{x:.2f}<extra></extra>"))
-        fig.add_trace(go.Scatter(x=o['Ham_Ort'], y=o['ylabel'], mode='markers', name=PLAYER,
-                                 marker=dict(color=C['you'], size=12), customdata=hover,
-                                 hovertemplate=PLAYER + ": %{x:.2f}<br>%{customdata[0]} "
-                                               + t("matches") + " · %{customdata[1]}–%{customdata[2]}<extra></extra>"))
-        fig.update_layout(title=t("3-dart average per opponent (W–L in brackets)"),
-                          xaxis_title=t('3-dart average'), yaxis_title="")
-        ui_helpers.chart(fig, key="opp_dumbbell", height=max(300, 34 * len(o) + 120))
-
-with tab5:
-    st.subheader(t("🎯 Double Attempt Analysis"))
-    st.caption(t("Double attempt: Once remaining score first drops to ≤ 40 in a leg, all subsequent turns in that leg count as double attempts."))
-    col1, col2, col3 = st.columns(3)
-    col1.metric(t("Double-zone turns"), int(total_dbl),
-                help=t("Turns from the moment the remaining score first reaches 40 or less (or 50)."))
-    col2.metric(t("Turns without a checkout"), int(total_failed))
-    success_rate = ((total_dbl - total_failed) / total_dbl * 100) if total_dbl > 0 else 0
-    col3.metric(t("Checkout rate per turn"), ui_helpers.pct(success_rate),
-                help=t("Double-zone turns (up to 3 darts) that ended in a checkout. "
-                       "The heatmap below counts single darts, so its hit rate is lower."))
-
-    doubles_section.render(efe_throws, PLAYER, t, player_id=PLAYER_ID)
-    st.divider()
-
-    st.subheader(t("Double Attempts by Match"))
-    dbl_df = efe_complete[['date', 'opponent', 'avg', 'adjusted_avg',
-                           'num_double_attempts', 'num_failed_doubles', 'result']].copy()
-    dbl_df['fark'] = (dbl_df['adjusted_avg'] - dbl_df['avg']).round(2)
-    dbl_df['result'] = dbl_df['result'].map(RESULT_ICON)
-    dbl_df.columns = [t('Date'), t('Opponent'), t('Raw Avg.'), t('Adjusted'),
-                      t('Double Attempts'), t('Failed'), t('Result'), t('Diff')]
-    st.dataframe(dbl_df, use_container_width=True, hide_index=True)
-
-    st.subheader(t("Average lost to the double zone"))
-    comp_df = efe_complete.sort_values('date').copy()
-    if not comp_df.empty:
-        comp_df['label'] = comp_df.apply(lambda r: make_label(r['date'], r['opponent']), axis=1)
-        comp_df['diff'] = comp_df['adjusted_avg'] - comp_df['avg']
-        fig = go.Figure(go.Bar(
-            x=comp_df['label'], y=comp_df['diff'], marker=dict(color=C['you'], cornerradius=4),
-            customdata=list(zip(comp_df['avg'], comp_df['adjusted_avg'])),
-            hovertemplate="%{x}<br>" + t("Raw") + ": %{customdata[0]:.2f} → " + t("Adjusted")
-                          + ": %{customdata[1]:.2f}<br>+%{y:.2f}<extra></extra>"))
-        fig.update_layout(title=t("Adjusted minus raw average, per match (oldest → newest)"),
-                          xaxis=dict(type='category', tickangle=-45, title=''),
-                          yaxis_title=t('Points of average'))
-        ui_helpers.chart(fig, key="dbl_cost")
-
-with tab6:
-    st.subheader(t("🏆 Top 5 Matches (by Raw Average)"))
-    best = efe_complete.nlargest(5, 'avg')[RAW_COLS].copy()
-    best['result'] = best['result'].map(RESULT_ICON)
-    best.columns = MAIN_COLS
-    st.dataframe(best, use_container_width=True, hide_index=True)
-    st.subheader(t("💀 Bottom 5 Matches (by Raw Average)"))
-    worst = efe_complete.nsmallest(5, 'avg')[RAW_COLS].copy()
-    worst['result'] = worst['result'].map(RESULT_ICON)
-    worst.columns = MAIN_COLS
-    st.dataframe(worst, use_container_width=True, hide_index=True)
-    st.subheader(t("🏆 Top 5 Matches (by Adjusted Average)"))
-    best_adj = efe_complete.nlargest(5, 'adjusted_avg')[RAW_COLS].copy()
-    best_adj['result'] = best_adj['result'].map(RESULT_ICON)
-    best_adj.columns = MAIN_COLS
-    st.dataframe(best_adj, use_container_width=True, hide_index=True)
-
-with tab7:
-    st.subheader(f"{t('All Matches')} ({len(efe_complete)})")
-    col1, col2 = st.columns(2)
-    with col1:
-        result_filter = st.multiselect(t("Result:"), options=['won', 'lost'],
-                                       default=['won', 'lost'],
-                                       format_func=lambda x: RESULT_TXT[x])
-    with col2:
-        all_opponents = sorted(efe_complete['opponent'].unique())
-        opponent_filter = st.multiselect(t("Opponent:"), all_opponents, default=all_opponents)
-    filtered = efe_complete[
-        (efe_complete['result'].isin(result_filter)) &
-        (efe_complete['opponent'].isin(opponent_filter))
-    ].copy()
-    display_df = filtered[RAW_COLS].copy()
-    display_df['result'] = display_df['result'].map(RESULT_TXT)
-    display_df['avg'] = display_df['avg'].round(2)
-    display_df['adjusted_avg'] = display_df['adjusted_avg'].round(2)
-    display_df['opp_avg'] = display_df['opp_avg'].round(2)
-    display_df.columns = MAIN_COLS
-    st.dataframe(display_df, use_container_width=True, hide_index=True)
-    st.caption(f"{t('Showing')}: {len(filtered)} {t('matches')}")
-    st.divider()
-    st.subheader(t("🎯 Match Detail"))
-    match_options = filtered.apply(lambda r: f"{r['date']} — vs {r['opponent']}", axis=1).tolist()
-    if not match_options:
-        st.info(t("No matches fit the filters."))
-    else:
-        selected = st.selectbox(t("Select match:"), match_options)
-        idx = match_options.index(selected)
-        selected_match_id = filtered.iloc[idx]['match_id']
-        match_legs = legs[legs['match_id'] == selected_match_id].sort_values('leg_no')
-        num_legs = len(match_legs)
-        if num_legs == 0:
-            st.warning(t("This match has no leg data."))
+    with m_over:
+        if efe_complete.empty:
+            no_matches_note()
         else:
-            st.caption(t("This match has **{n} legs**.").format(n=num_legs))
-            for _, leg_row in match_legs.iterrows():
-                leg_id = leg_row['leg_id']
-                leg_no = leg_row['leg_no']
-                winner = clean_name(leg_row['winner_name']) or "?"
-                st.markdown(f"### Leg {leg_no} — {t('Winner')}: **{winner}**")
-                leg_throws = throws[throws['leg_id'] == leg_id].copy()
-                leg_throws = leg_throws.sort_values(['player_name', 'turn'])
+            st.markdown("##### " + t("Last 10 matches"))
+            match_table(efe_complete.head(10), key="recent_matches")
+        if not efe_marked.empty:
+            dist = efe_marked.assign(
+                band=ui_helpers.score_bands(efe_marked['score_thrown']),
+                kind=efe_marked['is_dbl'].map({False: t('Scoring turns'), True: t('Double-zone turns')}))
+            dist = (dist.groupby(['band', 'kind'], observed=False).size()
+                    .reset_index(name='count'))
+            fig = go.Figure()
+            for kind, color in ((t('Scoring turns'), C['alt']), (t('Double-zone turns'), C['neutral'])):
+                d = dist[dist['kind'] == kind]
+                fig.add_trace(go.Bar(x=d['band'].astype(str), y=d['count'], name=kind,
+                                     marker=dict(color=color, cornerradius=4),
+                                     hovertemplate="%{x}: %{y} " + t("turns") + "<extra>" + kind + "</extra>"))
+            fig.update_layout(barmode='stack', title=t("Score per turn (20-point bands)"),
+                              xaxis_title=t('Score'), yaxis_title=t('Turns'))
+            ui_helpers.chart(fig, key="overview_bands")
+            st.caption(t("Double-zone turns (remaining ≤ 40) score low by nature, so they are shown "
+                         "separately from your scoring turns."))
+
+    with m_prog:
+        efe_sorted = efe_complete.sort_values('date').copy()
+        if efe_sorted.empty:
+            no_matches_note()
+        else:
+            efe_sorted['when'] = pd.to_datetime(efe_sorted['date'], errors='coerce')
+            ui_helpers.daily_trend(
+                efe_sorted, 'when',
+                [('adjusted_avg', t('Adjusted average'), 'you'), ('avg', t('Raw average'), 'alt')],
+                t("Raw vs adjusted average per match day"),
+                y_title=t('3-dart average'), unit=t("matches"), key="progress_avg", height=380, decimals=2)
+            st.caption(t("Each dot is the average of that day's matches. "
+                         "Adjusted leaves out double-zone turns."))
+
+        if not efe_marked.empty:
+            scoring = efe_marked[~efe_marked['is_dbl']]
+            by_turn = scoring.groupby('turn')['score_thrown'].agg(['mean', 'count']).reset_index()
+            by_turn = by_turn[by_turn['count'] >= 10]
+            fig3 = go.Figure(go.Bar(
+                x=by_turn['turn'], y=by_turn['mean'].round(1),
+                marker=dict(color=C['alt'], cornerradius=4), customdata=by_turn['count'],
+                hovertemplate=t("Turn") + " %{x}: %{y:.1f}<br>%{customdata} " + t("turns") + "<extra></extra>"))
+            fig3.update_layout(title=t("Average score by turn number (scoring turns only)"),
+                               xaxis=dict(title=t('Turn'), dtick=1), yaxis_title=t('Average score'))
+            ui_helpers.chart(fig3, key="by_turn")
+            st.caption(t("Only turns before the double zone, and only turn numbers with at least 10 samples."))
+
+    with m_opp:
+        if efe_complete.empty:
+            no_matches_note()
+        else:
+            opp_stats = efe_complete.groupby('opponent').agg(
+                matches=('match_id', 'count'),
+                won=('result', lambda x: (x == 'won').sum()),
+                lost=('result', lambda x: (x == 'lost').sum()),
+                avg=('avg', 'mean'), adjusted=('adjusted_avg', 'mean'), opp_avg=('opp_avg', 'mean'),
+            ).reset_index()
+            opp_stats['win_pct'] = opp_stats['won'] / opp_stats['matches'] * 100
+            opp_stats = opp_stats.sort_values('matches', ascending=False)
+            st.dataframe(
+                opp_stats.rename(columns={'opponent': t('Opponent'), 'matches': t('Matches'), 'won': t('Won'),
+                                          'lost': t('Lost'), 'avg': t('Average'), 'adjusted': t('Adjusted'),
+                                          'opp_avg': t('Opponent avg'), 'win_pct': t('Win %')}),
+                width="stretch", hide_index=True,
+                column_config={c: st.column_config.NumberColumn(c, format="%.2f")
+                               for c in (t('Average'), t('Adjusted'), t('Opponent avg'))}
+                | {t('Win %'): st.column_config.NumberColumn(t('Win %'), format="%.0f%%")})
+
+            o = opp_stats.sort_values('avg')
+            o['ylabel'] = o.apply(lambda r: f"{r['opponent']}  ({int(r['won'])}–{int(r['lost'])})", axis=1)
+            fig = go.Figure()
+            for _, r in o.iterrows():
+                fig.add_trace(go.Scatter(x=[r['avg'], r['opp_avg']], y=[r['ylabel']] * 2, mode='lines',
+                                         line=dict(color=C['grid'], width=6), showlegend=False, hoverinfo='skip'))
+            hover = list(zip(o['matches'], o['won'], o['lost']))
+            fig.add_trace(go.Scatter(x=o['opp_avg'], y=o['ylabel'], mode='markers', name=t('Opponent'),
+                                     marker=dict(color=C['neutral'], size=12), customdata=hover,
+                                     hovertemplate=t("Opponent") + ": %{x:.2f}<extra></extra>"))
+            fig.add_trace(go.Scatter(x=o['avg'], y=o['ylabel'], mode='markers', name=PLAYER,
+                                     marker=dict(color=C['you'], size=12), customdata=hover,
+                                     hovertemplate=PLAYER + ": %{x:.2f}<br>%{customdata[0]} "
+                                                   + t("matches") + " · %{customdata[1]}–%{customdata[2]}<extra></extra>"))
+            fig.update_layout(title=t("Your average vs your opponent's (W–L in brackets)"),
+                              xaxis_title=t('3-dart average'), yaxis_title="")
+            ui_helpers.chart(fig, key="opp_dumbbell", height=max(300, 34 * len(o) + 120))
+
+    with m_best:
+        if efe_complete.empty:
+            no_matches_note()
+        else:
+            st.markdown("##### " + t("Best 5 matches"))
+            match_table(efe_complete.nlargest(5, 'avg'), key="best5")
+            st.markdown("##### " + t("Worst 5 matches"))
+            match_table(efe_complete.nsmallest(5, 'avg'), key="worst5")
+            st.markdown("##### " + t("Best 5 by adjusted average"))
+            match_table(efe_complete.nlargest(5, 'adjusted_avg'), key="best5adj")
+
+    with m_list:
+        col1, col2 = st.columns(2)
+        with col1:
+            result_filter = st.multiselect(t("Result"), options=['won', 'lost'], default=[],
+                                           format_func=lambda x: RESULT_TXT[x], placeholder=t("Won and lost"))
+        with col2:
+            all_opponents = sorted(efe_complete['opponent'].dropna().unique())
+            opponent_filter = st.multiselect(t("Opponent"), all_opponents, default=[],
+                                             placeholder=t("All opponents (type to search)"))
+        filtered = efe_complete.copy()
+        if result_filter:
+            filtered = filtered[filtered['result'].isin(result_filter)]
+        if opponent_filter:
+            filtered = filtered[filtered['opponent'].isin(opponent_filter)]
+        if filtered.empty:
+            st.info(t("No matches fit the filters."))
+        else:
+            match_table(filtered, key="all_matches")
+            st.caption(f"{len(filtered)} {t('matches')}")
+
+            st.markdown("##### " + t("Match detail"))
+            labels = {
+                r['match_id']: f"{pd.to_datetime(r['date']).strftime('%d %b %Y, %H:%M')} — vs {r['opponent']} "
+                               f"({RESULT_TXT.get(r['result'], '?')}, {r['avg']:.1f})"
+                for _, r in filtered.iterrows()}
+            selected_match_id = st.selectbox(t("Match"), list(labels), format_func=labels.get)
+            match_legs = legs[legs['match_id'] == selected_match_id].sort_values('leg_no')
+            mthrows = throws[throws['match_id'] == selected_match_id]
+            if match_legs.empty:
+                st.warning(t("This match has no leg data."))
+            else:
                 me = PLAYER
-                if PLAYER_ID is not None and 'player_user_id' in leg_throws.columns:
-                    mine = leg_throws.loc[leg_throws['player_user_id'] == PLAYER_ID, 'player_name'].unique()
+                if PLAYER_ID is not None and 'player_user_id' in mthrows.columns:
+                    mine = mthrows.loc[mthrows['player_user_id'] == PLAYER_ID, 'player_name'].unique()
                     if len(mine):
                         me = mine[0]
-                players_in_leg = [me] + [
-                    p for p in leg_throws['player_name'].unique() if p != me][:2]
+
+                # One line per leg, then a picker so only one leg is drawn at a time.
+                leg_info = {}
+                for _, leg_row in match_legs.iterrows():
+                    lt = mthrows[(mthrows['leg_id'] == leg_row['leg_id']) & (mthrows['player_name'] == me)]
+                    lt = lt.sort_values('turn')
+                    won = clean_name(leg_row['winner_name']) == clean_name(me)
+                    darts = int(pd.to_numeric(lt['darts_thrown'], errors='coerce').fillna(0).sum())
+                    out = ""
+                    if won and not lt.empty and pd.to_numeric(lt['remaining_after'], errors='coerce').iloc[-1] == 0:
+                        out = f" · {t('out')} {int(lt['remaining_before'].iloc[-1])}"
+                    leg_info[leg_row['leg_id']] = (f"{t('Leg')} {leg_row['leg_no']} · "
+                                                   f"{t('Won') if won else t('Lost')} · {darts} {t('darts')}{out}")
+                leg_id = st.radio(t("Leg"), list(leg_info), format_func=leg_info.get, horizontal=True,
+                                  key=f"leg_pick_{selected_match_id}")
+
+                leg_throws = mthrows[mthrows['leg_id'] == leg_id].sort_values(['player_name', 'turn'])
+                players_in_leg = [me] + [p for p in leg_throws['player_name'].unique() if p != me][:2]
 
                 # Leg replay: remaining score after each turn, both players.
                 replay = go.Figure()
@@ -688,46 +679,72 @@ with tab7:
                     pt = leg_throws[leg_throws['player_name'] == player].sort_values('turn')
                     if pt.empty:
                         continue
-                    start = pt['remaining_before'].iloc[0]
                     is_me = player == me
                     replay.add_trace(go.Scatter(
-                        x=[0] + pt['turn'].tolist(), y=[start] + pt['remaining_after'].tolist(),
+                        x=[0] + pt['turn'].tolist(), y=[pt['remaining_before'].iloc[0]] + pt['remaining_after'].tolist(),
                         mode='lines+markers', name=clean_name(player),
-                        line=dict(color=C['you'] if is_me else C['neutral'], width=2.5 if is_me else 2,
-                                  shape='hv'),
-                        marker=dict(size=8),
-                        customdata=[0] + pt['score_thrown'].tolist(),
+                        line=dict(color=C['you'] if is_me else C['neutral'], width=2.5 if is_me else 2, shape='hv'),
+                        marker=dict(size=8), customdata=[0] + pt['score_thrown'].tolist(),
                         hovertemplate="%{fullData.name} · " + t("Turn") + " %{x}<br>" + t("Throw")
                                       + ": %{customdata}<br>" + t("Remaining") + ": %{y}<extra></extra>"))
                 replay.add_hrect(y0=0, y1=40, fillcolor=C['grid'], line_width=0,
                                  annotation_text=t("double zone"), annotation_position="top left",
                                  annotation_font_color=C['muted'])
-                replay.update_layout(title=t("Leg replay — remaining score after each turn"),
+                replay.update_layout(title=t("Remaining score after each turn"),
                                      xaxis=dict(title=t('Turn'), dtick=1),
                                      yaxis=dict(title=t('Remaining'), rangemode='tozero'))
                 ui_helpers.chart(replay, key=f"replay_{leg_id}", height=300)
 
-                if len(players_in_leg) == 2:
-                    cols = st.columns(2)
-                    for i, player in enumerate(players_in_leg):
-                        p_throws = leg_throws[leg_throws['player_name'] == player].copy()
-                        if p_throws.empty:
-                            continue
-                        with cols[i]:
-                            st.write(t("**{p}** — {n} turns").format(p=clean_name(player), n=len(p_throws)))
-                            p_marked = mark_double_attempts(p_throws)
-                            p_marked['Dbl'] = p_marked['is_dbl'].apply(
-                                lambda x: '🎯' if x else '')
-                            p_display = p_marked[
-                                ['turn', 'remaining_before', 'score_thrown', 'remaining_after', 'Dbl']].copy()
-                            p_display.columns = [t('Turn'), t('Start'), t('Throw'), t('Remaining'), '🎯']
-                            st.dataframe(p_display, use_container_width=True,
-                                         hide_index=True, height=400)
-                else:
-                    p_display = leg_throws[
-                        ['player_name', 'turn', 'remaining_before', 'score_thrown', 'remaining_after']].copy()
-                    p_display.columns = [t('Player'), t('Turn'), t('Start'), t('Throw'), t('Remaining')]
-                    st.dataframe(p_display, use_container_width=True, hide_index=True)
+                cols = st.columns(max(1, len(players_in_leg)))
+                for col, player in zip(cols, players_in_leg):
+                    p_throws = leg_throws[leg_throws['player_name'] == player]
+                    if p_throws.empty:
+                        continue
+                    with col:
+                        st.write(f"**{clean_name(player)}** — {len(p_throws)} {t('turns')}")
+                        p_marked = mark_double_attempts(p_throws)
+                        p_marked['zone'] = p_marked['is_dbl'].map({True: '🎯', False: ''})
+                        p_display = p_marked[['turn', 'remaining_before', 'score_thrown', 'remaining_after', 'zone']]
+                        p_display.columns = [t('Turn'), t('Start'), t('Throw'), t('Remaining'), t('Double zone')]
+                        st.dataframe(p_display, width="stretch", hide_index=True)
 
-with tab8:
-    coaching_page.render_coaching_page(PLAYER, t, player_id=PLAYER_ID)
+with tab_doubles:
+    if total_dbl:
+        col1, col2, col3 = st.columns(3)
+        col1.metric(t("Double-zone turns"), int(total_dbl),
+                    help=t("Turns from the moment the remaining score first reaches 40 or less (or 50)."))
+        col2.metric(t("Turns without a checkout"), int(total_failed))
+        success_rate = (total_dbl - total_failed) / total_dbl * 100
+        col3.metric(t("Checkout rate per turn"), ui_helpers.pct(success_rate),
+                    help=t("Double-zone turns (up to 3 darts) that ended in a checkout. "
+                           "The ring below counts single darts, so its hit rate is lower."))
+
+    doubles_section.render(period_throws, PLAYER, t, player_id=PLAYER_ID)
+
+    if not efe_complete.empty:
+        st.divider()
+        st.markdown("##### " + t("Doubles in each match"))
+        dbl = efe_complete.copy()
+        dbl['cost'] = (dbl['adjusted_avg'] - dbl['avg']).round(2)
+        match_table(dbl, extra={'num_double_attempts': t('Double-zone turns'),
+                                'num_failed_doubles': t('Without checkout'),
+                                'cost': t('Average lost to doubles')}, key="dbl_matches")
+
+        comp_df = efe_complete.sort_values('date').copy()
+        comp_df['label'] = comp_df.apply(lambda r: make_label(r['date'], r['opponent']), axis=1)
+        comp_df['diff'] = comp_df['adjusted_avg'] - comp_df['avg']
+        fig = go.Figure(go.Bar(
+            x=comp_df['label'], y=comp_df['diff'], marker=dict(color=C['you'], cornerradius=4),
+            customdata=list(zip(comp_df['avg'], comp_df['adjusted_avg'])),
+            hovertemplate="%{x}<br>" + t("Average") + ": %{customdata[0]:.2f} → " + t("Adjusted")
+                          + ": %{customdata[1]:.2f}<br>+%{y:.2f}<extra></extra>"))
+        fig.update_layout(title=t("Average lost to the double zone, per match (oldest → newest)"),
+                          xaxis=dict(type='category', tickangle=-45, title=''),
+                          yaxis_title=t('Points of average'))
+        ui_helpers.chart(fig, key="dbl_cost")
+
+with tab_practice:
+    practice_tab.render(PLAYER, DB_PATH, t, player_id=PLAYER_ID)
+
+with tab_coach:
+    coaching_page.render_coaching_page(PLAYER, t, player_id=PLAYER_ID, efe_throws=period_throws)

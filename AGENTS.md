@@ -24,10 +24,12 @@ python -m py_compile *.py
 
 | File | Role |
 |---|---|
-| `app.py` | Entry point: auth, sidebar actions, data loading, the 8 main tabs |
+| `app.py` | Entry point: auth, sidebar actions, data loading, period picker, the 5 main tabs (Home, Matches, Doubles, Practice, Coaching) |
+| `home_tab.py` | Home tab: this week vs last week, best/weakest double, one trend, recent activity, last sync |
 | `dartcounter_api.py` | DartCounter API client, Turso HTTP client (`turso_query`, `turso_execute`), schema setup, match import. Also a CLI: `python dartcounter_api.py <match URL or ID>` |
 | `sync.py` | Imports the connected player's whole DartCounter history (matches, Score Training, Around the Clock, Singles, Doubles Training), skipping what's stored. `detect_player(token)` finds the token owner |
-| `practice_tab.py` | Practice tab (Score Training, Around the Clock, Singles) and the cached `load_all_practice_data()` |
+| `practice_tab.py` | Practice tab (Score Training, Around the Clock, Singles, Doubles Training), `session_table()` and the cached `load_all_practice_data()` |
+| `doubles_training_tab.py` | Doubles Training sub-tab, called from `practice_tab.py` |
 | `singles_tab.py` | Singles Training sub-tab, called from `practice_tab.py` |
 | `coaching_page.py` | Coaching & Analytics tab |
 | `ui_helpers.py` | Mobile CSS, the shared chart palette (`colors()`, `seq_scale()`), `chart()` styling, `daily_trend()`, `score_bands()`, `pct()`, and the `dartboard_ring()` / `segment_bars()` segment charts |
@@ -66,6 +68,8 @@ python -m py_compile *.py
 - UI text is in English and goes through `t()` in `app.py` (currently a pass-through; there is no language toggle). Code comments are often in Turkish; that's fine.
 - Every Streamlit tab renders on each rerun, so keep data loading cached (`@st.cache_data`) and handle errors per tab. One missing table shouldn't take down the whole app.
 - After any import or fetch action, call `st.cache_data.clear()` before `st.rerun()`.
+- **Period filter:** the picker at the top sets `st.session_state['period']`. Every tab except Home's "This week" row filters with `ui_helpers.in_period()` (practice tables by `started_at`, matches by `date_col='date'`). Show an `st.info` naming the period when it leaves nothing.
+- Tables: show dates with `ui_helpers.date_column()` (readable but sortable), plain column names, newest first. Use `width="stretch"`, not the deprecated `use_container_width`.
 - Don't make up placeholder data in charts. If data is missing, show an `st.info` message.
 - **Charts:** build them with `plotly.graph_objects`, render them with `ui_helpers.chart()`, and take colors from `ui_helpers.colors()` roles (`you` = player/adjusted, `alt` = second series, `neutral` = opponents). Don't force `template="plotly_dark"` or hard-code hex. Plot time on a real datetime axis. Never use dual y-axes; use small multiples instead. Use straight lines, not splines (sessions cluster minutes apart). For trends over time use `ui_helpers.daily_trend()` (one point per day, min–max bar, overall-mean line, latest value labelled) instead of per-session dots with a rolling line, which stack up on busy days. Put metric explanations in `help=`, not in `delta=`.
 

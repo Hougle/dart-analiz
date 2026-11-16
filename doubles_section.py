@@ -42,7 +42,7 @@ def _atc_doubles(player, player_id=None):
     needed = {"atc_user_id", "target", "darts_needed"}
     if sessions.empty or targets.empty or not needed.issubset(targets.columns):
         return pd.DataFrame(columns=["target", "hits", "attempts"])
-    s = only_player(sessions, player_id, player)
+    s = ui_helpers.in_period(only_player(sessions, player_id, player))
     if "is_cpu" in s.columns:
         s = s[s["is_cpu"].fillna(0).astype(int) == 0]
     if "number_segment" in s.columns:
@@ -66,7 +66,7 @@ def _training_doubles(player, player_id=None):
     needed = {"doubles_user_id", "target", "darts_thrown", "hits"}
     if sessions.empty or targets.empty or not needed.issubset(targets.columns):
         return pd.DataFrame(columns=["target", "hits", "attempts"])
-    s = only_player(sessions, player_id, player)
+    s = ui_helpers.in_period(only_player(sessions, player_id, player))
     t = targets[targets["doubles_user_id"].isin(s["doubles_user_id"])].copy()
     if t.empty:
         return pd.DataFrame(columns=["target", "hits", "attempts"])
@@ -83,20 +83,49 @@ def _wilson_low(hits, n, z=1.96):
     return max(0.0, (centre - margin) / (1 + z * z / n))
 
 
+def double_name(tg):
+    tg = int(tg)  # a row taken with .loc comes back as float
+    return "DBull" if tg == 25 else f"D{tg}"
+
+
+def double_stats(efe_throws, player, player_id=None, choice="Combined"):
+    """Hits / darts / hit rate per double for one source (or all combined), in the selected period."""
+    sources = {"Match": lambda: _match_doubles(efe_throws),
+               "ATC": lambda: _atc_doubles(player, player_id),
+               "Training": lambda: _training_doubles(player, player_id)}
+    parts = [sources[choice]()] if choice in sources else [f() for f in sources.values()]
+    stats = pd.concat(parts).groupby("target")[["hits", "attempts"]].sum().reset_index()
+    if stats.empty:
+        return pd.DataFrame(columns=["target", "hits", "attempts", "value"])
+    stats = stats.astype({"hits": float, "attempts": float})  # empty sources can leave object dtype
+    stats = stats[stats["attempts"] > 0].copy()
+    stats["target"] = stats["target"].astype(int)
+    stats["value"] = stats["hits"] / stats["attempts"]
+    return stats
+
+
+def ranked(stats, min_darts=20):
+    """Doubles with at least min_darts, best first by confidence-adjusted hit rate."""
+    r = stats[stats["attempts"] >= min_darts].copy()
+    if r.empty:
+        return r
+    r["reliable"] = [_wilson_low(h, n) for h, n in zip(r["hits"], r["attempts"])]
+    r = r.sort_values(["reliable", "value"], ascending=False).reset_index(drop=True)
+    r["name"] = r["target"].apply(double_name)
+    r["per_hit"] = r.apply(lambda x: x["attempts"] / x["hits"] if x["hits"] else None, axis=1)
+    return r
+
+
 def _reliable_doubles(stats, t):
     st.subheader(t("🏅 Most reliable doubles"))
     min_darts = st.slider(t("Minimum darts at a double to rank it"), 5, 100, 20, step=5,
                           key="reliable_min_darts",
                           help=t("Doubles with fewer darts are left out; a couple of lucky hits "
                                  "shouldn't put a double on top."))
-    r = stats[stats["attempts"] >= min_darts].copy()
+    r = ranked(stats, min_darts)
     if r.empty:
         st.info(t("No double has that many darts yet. Lower the minimum or practise more doubles."))
         return
-    r["reliable"] = [_wilson_low(h, n) for h, n in zip(r["hits"], r["attempts"])]
-    r = r.sort_values(["reliable", "value"], ascending=False).reset_index(drop=True)
-    r["name"] = r["target"].apply(lambda tg: "DBull" if int(tg) == 25 else f"D{int(tg)}")
-    r["per_hit"] = r.apply(lambda x: x["attempts"] / x["hits"] if x["hits"] else None, axis=1)
 
     top = r.head(3)
     cols = st.columns(len(top))
@@ -136,7 +165,7 @@ def _reliable_doubles(stats, t):
             t("Hits"): r["hits"].astype(int),
             t("Darts"): r["attempts"].astype(int),
         })
-        st.dataframe(table, hide_index=True, use_container_width=True,
+        st.dataframe(table, hide_index=True, width="stretch",
                      column_config={t("Hit rate"): st.column_config.ProgressColumn(
                          t("Hit rate"), format="%.1f%%", min_value=0,
                          max_value=float(max(table[t("Hit rate")].max(), 1)))})
@@ -151,44 +180,25 @@ def _confidence(darts):
 
 
 def render(efe_throws, player, t, player_id=None):
-    st.subheader(t("🎯 Double Ring Heatmap & Sector Reliability"))
+    st.subheader(t("Double ring & reliability"))
 
     sources = {
-        "Combined": t("Combined (all sources)"),
+        "Combined": t("All sources"),
         "Training": t("Doubles Training"),
-        "ATC": t("Around the Clock — Doubles mode"),
+        "ATC": t("Around the Clock (Doubles)"),
         "Match": t("Match checkouts (estimated)"),
     }
-    choice = st.radio(t("Source"), list(sources), format_func=sources.get,
-                      horizontal=True, key="double_source")
-
-    match_df = _match_doubles(efe_throws)
-    atc_df = _atc_doubles(player, player_id)
-    training_df = _training_doubles(player, player_id)
-    if choice == "Training":
-        stats = training_df
-    elif choice == "ATC":
-        stats = atc_df
-    elif choice == "Match":
-        stats = match_df
-    else:
-        stats = (pd.concat([match_df, atc_df, training_df]).groupby("target")[["hits", "attempts"]]
-                 .sum().reset_index())
-
+    choice = st.segmented_control(t("Source"), list(sources), format_func=sources.get,
+                                  default="Combined", key="double_source") or "Combined"
+    stats = double_stats(efe_throws, player, player_id, choice)
     if stats.empty or stats["attempts"].sum() == 0:
-        st.info(t("No double attempts recorded for this source yet."))
+        st.info(t("No double attempts recorded for this source in this period."))
         return
 
-    stats = stats.astype({"hits": float, "attempts": float})  # empty sources can leave object dtype
-    stats = stats[stats["attempts"] > 0].copy()
-    stats["target"] = stats["target"].astype(int)
-    stats["value"] = stats["hits"] / stats["attempts"]
     hits, darts = int(stats["hits"].sum()), int(stats["attempts"].sum())
     rated = stats[stats["attempts"] >= MIN_N]
 
-    def name(tg):
-        tg = int(tg)  # a row taken with .loc comes back as float
-        return "DBull" if tg == 25 else f"D{tg}"
+    name = double_name
 
     c1, c2, c3, c4 = st.columns(4)
     c1.metric(t("Overall double hit rate"), ui_helpers.pct(hits / darts * 100),
