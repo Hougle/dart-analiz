@@ -2,7 +2,6 @@
 🎯 Dart Analysis — Streamlit Main Application File
 """
 import re
-from datetime import datetime
 import streamlit as st
 import sqlite3
 import pandas as pd
@@ -195,7 +194,7 @@ def run_sync():
                + stats.get("doubles", 0))
         status.update(label=f"{t('Sync done')}: {new} {t('new games')}", state="complete", expanded=False)
     try:
-        dartcounter_api.save_setting("last_sync", datetime.now().strftime("%d %b %Y, %H:%M"))
+        dartcounter_api.mark_synced("app")
     except Exception:
         pass
     st.success(f"{stats['matches']} {t('matches')} · {stats['score']} Score Training · "

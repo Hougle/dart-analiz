@@ -382,3 +382,40 @@ def sync_all(token, years=None, log=print):
         if match_conn:
             match_conn.close()
     return stats
+
+
+def main(argv=None):
+    """Command-line sync, used by the scheduled GitHub Action.
+
+    python sync.py          -> this year and last year (quick daily run)
+    python sync.py --all    -> whole history
+    Exits non-zero on a rejected token or on import errors, so a failed run is reported.
+    """
+    import argparse
+    import sys
+
+    from dartcounter_api import load_token, mark_synced
+
+    parser = argparse.ArgumentParser(description="Import new DartCounter games into the database.")
+    parser.add_argument("--all", action="store_true", help="walk the whole history, not just recent years")
+    args = parser.parse_args(argv)
+
+    if not _turso_available():
+        print("TURSO_DATABASE_URL / TURSO_AUTH_TOKEN are not set; refusing to sync into a throwaway local file.")
+        return 2
+    year = datetime.now().year
+    years = None if args.all else [year, year - 1]
+    try:
+        stats = sync_all(load_token(), years=years, log=lambda m: print(m, flush=True))
+    except PermissionError as e:
+        print(f"Token rejected: {e}")
+        return 1
+    mark_synced("auto")
+    new = sum(v for k, v in stats.items() if k != "errors")
+    print(f"Done: {new} new games {stats}")
+    return 1 if stats["errors"] else 0
+
+
+if __name__ == "__main__":
+    import sys
+    sys.exit(main())

@@ -1,0 +1,40 @@
+name: Sync DartCounter
+
+# Imports new matches and practice sessions into Turso every night, so the
+# live dashboard stays current without anyone pressing Sync.
+on:
+  schedule:
+    - cron: "0 21 * * *"  # 00:00 Istanbul time (21:00 UTC)
+  workflow_dispatch:       # "Run workflow" button on the Actions tab
+    inputs:
+      all_years:
+        description: "Walk the whole history instead of the last two years"
+        type: boolean
+        default: false
+
+concurrency:
+  group: dartcounter-sync
+  cancel-in-progress: false
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install dependencies
+        run: pip install "requests>=2.31.0" "cryptography>=42.0.0"
+
+      - name: Sync
+        env:
+          TURSO_DATABASE_URL: ${{ secrets.TURSO_DATABASE_URL }}
+          TURSO_AUTH_TOKEN: ${{ secrets.TURSO_AUTH_TOKEN }}
+          DARTCOUNTER_TOKEN: ${{ secrets.DARTCOUNTER_TOKEN }}
+          # Only needed if the token was connected from the app's sidebar
+          TOKEN_ENCRYPTION_KEY: ${{ secrets.TOKEN_ENCRYPTION_KEY }}
+        run: python sync.py ${{ inputs.all_years && '--all' || '' }}
