@@ -72,12 +72,23 @@ class RawValues(unittest.TestCase):
         self.assertEqual((src, n), ("Score Training", 3))
         self.assertAlmostEqual(value, 45)
 
-    def test_recovery_counts_next_visit_in_same_group(self):
-        # Average visit is 50. After each 20 the next visit is 80 (reaches) or 20 (doesn't).
+    def test_recovery_compares_after_bad_with_normal(self):
+        # Average visit is 50; 3 of 6 visits reach it (50%). Of the 3 visits that follow a
+        # visit of 40 or less, 2 reach it (66.7%), so recovery is 66.7 / 50 = 133%.
         p = session(1, [20, 80, 20, 20, 80, 80], "2026-10-01 18:00")
-        rate, n = coaching.recovery(coaching.visits(data(practice=p)))
-        self.assertEqual(n, 3)            # three visits follow a visit of 40 or less
-        self.assertAlmostEqual(rate, 200 / 3)
+        v = coaching.visits(data(practice=p))
+        after, base, n = coaching.recovery_rates(v)
+        self.assertEqual(n, 3)
+        self.assertAlmostEqual(after, 200 / 3)
+        self.assertAlmostEqual(base, 50)
+        self.assertAlmostEqual(coaching.recovery(v)[0], 400 / 3)
+
+    def test_recovery_100_when_bad_visits_dont_matter(self):
+        p = session(1, [20, 80, 80, 20, 20, 20, 80, 80], "2026-10-01 18:00")  # after-bad 2 of 4, all 4 of 8
+        v = coaching.visits(data(practice=p))
+        after, base, _ = coaching.recovery_rates(v)
+        self.assertAlmostEqual(after, base)
+        self.assertAlmostEqual(coaching.recovery(v)[0], 100)
 
     def test_stamina_last_three_vs_first_three(self):
         p = session(1, [60, 60, 60, 50, 45, 45, 45], "2026-10-01 18:00")
@@ -111,6 +122,19 @@ class Assess(unittest.TestCase):
         self.assertAlmostEqual(s.value, -10)
         self.assertAlmostEqual(s.score, 75)
         self.assertEqual(s.status, "Focus")
+
+
+class Explain(unittest.TestCase):
+    def test_every_skill_is_explained(self):
+        for key in coaching.SKILLS:
+            e = coaching.EXPLAIN[key]
+            self.assertTrue(e["measures"] and e["how"] and e["why"])
+            self.assertIn(e["kind"], ("level", "fixed"))
+
+    def test_fixed_targets_and_ladder(self):
+        t = coaching.targets(2)
+        self.assertEqual((t["start"], t["recovery"], t["stamina"]), (100, 100, -5))
+        self.assertEqual(coaching.ladder("doubles")[1], ("Developing", 14))  # Developing works towards Club
 
 
 class Priorities(unittest.TestCase):

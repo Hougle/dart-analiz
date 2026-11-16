@@ -12,14 +12,14 @@ from match_stats import darts_stats
 
 # ------------------------------------------------------------------ levels
 # (name, lowest scoring average). Targets per level are rule-of-thumb coaching
-# targets, not data: finishing %, doubles %, consistency, recovery %, hours/week.
+# targets, not data: finishing %, doubles %, consistency, hours/week.
 LEVELS = [
-    ("Starter", 0, dict(finishing=10, doubles=8, consistency=40, recovery=30, volume=1.5)),
-    ("Developing", 35, dict(finishing=12, doubles=10, consistency=45, recovery=35, volume=2)),
-    ("Club", 45, dict(finishing=16, doubles=14, consistency=50, recovery=40, volume=3)),
-    ("League", 55, dict(finishing=20, doubles=18, consistency=55, recovery=45, volume=4)),
-    ("Advanced", 65, dict(finishing=25, doubles=24, consistency=60, recovery=50, volume=5)),
-    ("Elite", 80, dict(finishing=30, doubles=30, consistency=65, recovery=55, volume=6)),
+    ("Starter", 0, dict(finishing=10, doubles=8, consistency=40, volume=1.5)),
+    ("Developing", 35, dict(finishing=12, doubles=10, consistency=45, volume=2)),
+    ("Club", 45, dict(finishing=16, doubles=14, consistency=50, volume=3)),
+    ("League", 55, dict(finishing=20, doubles=18, consistency=55, volume=4)),
+    ("Advanced", 65, dict(finishing=25, doubles=24, consistency=60, volume=5)),
+    ("Elite", 80, dict(finishing=30, doubles=30, consistency=65, volume=6)),
 ]
 ELITE_TARGET = 90  # scoring target once already Elite
 
@@ -54,6 +54,79 @@ WHY = {
     "stamina": "Holding your level late keeps long legs and matches winnable.",
     "volume": "Skills only move with regular practice.",
 }
+
+
+# What each skill measures, how it's calculated and where its target comes from.
+# "level" targets step up with your level (see LEVELS); "fixed" targets are the same for everyone.
+EXPLAIN = {
+    "scoring": dict(
+        kind="level",
+        measures="How many points you score per 3 darts when you're not on a finish.",
+        how="Total score ÷ darts × 3 over your match turns before the double zone (more than 40 "
+            "left, and not 50). With fewer than 3 matches in the period it uses your Score Training "
+            "average instead.",
+        why="The target is the average where the next level starts. Scoring average is the most "
+            "common way to rate a darts player, and each level is a step of about 10 points."),
+    "start": dict(
+        kind="fixed",
+        measures="Whether your first 9 darts of a leg are as good as your usual scoring.",
+        how="First-9 average (your first 3 turns of every leg) ÷ your scoring average × 100.",
+        why="100% means you start legs as strongly as you score in general. The first 3 visits are "
+            "all scoring with a fresh 501, so falling short of 100% means you start slowly."),
+    "finishing": dict(
+        kind="level",
+        measures="How often you finish a leg when you have the chance.",
+        how="Checkouts ÷ chances. A chance is every turn once you're on 40 or less (or 50), plus "
+            "any turn you finished from higher. It's counted per turn, because DartCounter doesn't "
+            "record which dart hit.",
+        why="A rough coaching target per level, set for this per-turn measure. A turn includes "
+            "setup turns (for example on an odd number), so it is lower than per-dart checkout "
+            "rates you may see quoted elsewhere."),
+    "doubles": dict(
+        kind="level",
+        measures="Your hit rate on doubles, per dart.",
+        how="Hits ÷ darts aimed at a double, from match finishes (estimated per visit), "
+            "Around the Clock in Doubles mode and Doubles Training. The same numbers as the "
+            "Doubles tab.",
+        why="A rough coaching target per level. 14% is about 1 hit in 7 darts, 24% about 1 in 4."),
+    "consistency": dict(
+        kind="level",
+        measures="How close your visits stay to your average, instead of swinging high and low.",
+        how="100 − the coefficient of variation of your visit scores (standard deviation ÷ "
+            "average × 100), over match scoring turns and Score Training.",
+        why="A rough coaching target per level. At 50 the typical swing is half your average; "
+            "steadier players have a smaller swing for the same average."),
+    "recovery": dict(
+        kind="fixed",
+        measures="Whether a bad visit (40 or less) drags down your next one.",
+        how="How often the visit after a bad one reaches your average, divided by how often any "
+            "visit reaches it, × 100. Both are counted within the same leg or session.",
+        why="100% means a bad visit doesn't affect the next one at all. The plain after-bad rate "
+            "isn't a fair measure: most visits land below the average, so even an unflappable "
+            "player reaches it only about 40% of the time."),
+    "stamina": dict(
+        kind="fixed",
+        measures="Whether you hold your level to the end of a practice session.",
+        how="The average of the last 3 turns compared with the first 3, over Score Training "
+            "sessions of 6 turns or more, as a % change.",
+        why="Up to a 5% drop is normal variation, so −5% or better counts as on target. A bigger "
+            "drop suggests you fade late."),
+    "volume": dict(
+        kind="level",
+        measures="How much you play.",
+        how="Time spent in matches and all practice modes, per week (weeks from your first to your "
+            "last game in the period, weeks off included).",
+        why="A rough guide to the practice time that usually goes with each level. It's never "
+            "ranked above a playing skill."),
+}
+
+
+def ladder(key):
+    """[(level name, target)] for a level-based skill: the target you work towards at each level."""
+    rows = []
+    for i, (name, _, _) in enumerate(LEVELS):
+        rows.append((name, targets(i)[key]))
+    return rows
 
 
 @dataclass
@@ -144,15 +217,30 @@ def consistency(v):
     return max(0.0, 100 - v["score"].std() / v["score"].mean() * 100), len(v)
 
 
-def recovery(v):
-    """(% of visits after a visit ≤ 40 that reach the average visit, number of bad visits)."""
+def recovery_rates(v):
+    """(% of visits after a visit ≤ 40 that reach the average visit,
+        % of all visits that reach it, number of visits after a bad one)."""
     if v.empty:
-        return None, 0
+        return None, None, 0
+    mean = v["score"].mean()
     prev = v.groupby("group")["score"].shift(1)
     after_bad = v[prev <= 40]
     if after_bad.empty:
-        return None, 0
-    return (after_bad["score"] >= v["score"].mean()).mean() * 100, len(after_bad)
+        return None, None, 0
+    return (after_bad["score"] >= mean).mean() * 100, (v["score"] >= mean).mean() * 100, len(after_bad)
+
+
+def recovery(v):
+    """(after-bad reach rate as % of the normal reach rate, visits after a bad one).
+
+    100% = a bad visit doesn't affect the next one. The raw after-bad rate on its own
+    isn't useful: most visits are below the mean (scores skew right), so even a player
+    who is never rattled reaches the average only ~40% of the time.
+    """
+    after, base, n = recovery_rates(v)
+    if after is None or not base:
+        return None, n
+    return after / base * 100, n
 
 
 def stamina(data):
@@ -206,6 +294,7 @@ def targets(level_index):
     t["scoring"] = LEVELS[level_index + 1][1] if level_index is not None and level_index + 1 < len(LEVELS) \
         else (ELITE_TARGET if level_index is not None else LEVELS[1][1])
     t["start"] = 100
+    t["recovery"] = 100
     t["stamina"] = -5
     return t
 
@@ -240,15 +329,24 @@ def assess(data, level_index=None):
                          note=f"First 9 {ds['first9']:.1f} vs scoring {sc:.1f}" if start else "")
     fin = ds["checkout"] if ds["checkout_chances"] >= 20 else None
     out["finishing"] = Skill("finishing", fin, tg["finishing"], ds["checkout_chances"],
-                             f"{ds['checkouts']} of {ds['checkout_chances']} chances")
+                             f"{ds['checkouts']} of {ds['checkout_chances']} chances",
+                             note=f"You finished {ds['checkouts']} of {ds['checkout_chances']} chances."
+                             if ds["checkout_chances"] else "")
     dr, darts = doubles_rate(data)
     out["doubles"] = Skill("doubles", dr if darts >= 50 else None, tg["doubles"], darts, f"{darts} darts")
     ci, nv = consistency(v)
-    out["consistency"] = Skill("consistency", ci if nv >= 30 else None, tg["consistency"], nv, f"{nv} visits")
+    out["consistency"] = Skill("consistency", ci if nv >= 30 else None, tg["consistency"], nv, f"{nv} visits",
+                               note=f"Your visits average {v['score'].mean():.1f} and typically swing "
+                                    f"±{v['score'].std():.1f} around it." if nv >= 2 else "")
     rc, nb = recovery(v)
-    out["recovery"] = Skill("recovery", rc if nb >= 10 else None, tg["recovery"], nb, f"{nb} bad visits")
+    after, base, _ = recovery_rates(v)
+    out["recovery"] = Skill("recovery", rc if nb >= 10 else None, tg["recovery"], nb, f"{nb} bad visits",
+                            note=f"{base:.0f}% of all your visits reach your average; right after a bad "
+                                 f"visit, {after:.0f}% do." if after is not None else "")
     st_, ns = stamina(data)
-    out["stamina"] = Skill("stamina", st_ if ns >= 3 else None, tg["stamina"], ns, f"{ns} sessions")
+    out["stamina"] = Skill("stamina", st_ if ns >= 3 else None, tg["stamina"], ns, f"{ns} sessions",
+                           note=f"Your last 3 turns are {st_:+.1f}% compared with your first 3."
+                           if st_ is not None else "")
     vol, ng = volume(data)
     out["volume"] = Skill("volume", vol, tg["volume"], ng, f"{ng} games")
 

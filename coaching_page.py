@@ -169,6 +169,36 @@ def _profile_table(skills):
     st.dataframe(pd.DataFrame(rows), hide_index=True, width="stretch")
 
 
+def _explainer(skills, default_key, level_index):
+    """Pick a skill: what it measures, how it's calculated, why the target, the target per level."""
+    by_key = {s.key: s for s in skills}
+    key = st.pills("Skill", options=coaching.SKILLS, format_func=lambda k: coaching.NAMES[k],
+                   default=default_key, key="coach_explain", label_visibility="collapsed") or default_key
+    s, e = by_key[key], coaching.EXPLAIN[key]
+    nxt = coaching.LEVELS[min((level_index or 0) + 1, len(coaching.LEVELS) - 1)][0]
+    target_note = f"{nxt}-level target" if e["kind"] == "level" else "same target for every level"
+    with st.container(border=True):
+        st.markdown(f"**{s.name}** · {s.status}")
+        st.markdown(f"<span class='da-big da-num'>{coaching.fmt(key, s.value)}</span> "
+                    f"<span class='da-muted'>target {coaching.fmt(key, s.target)} · {target_note} · "
+                    f"based on {escape(s.sample_label)}</span>", unsafe_allow_html=True)
+        if s.note:
+            st.caption(s.note)
+        st.markdown(f"**What it measures.** {e['measures']}  \n"
+                    f"**How it's calculated.** {e['how']}  \n"
+                    f"**Why this target.** {e['why']}")
+        if e["kind"] == "level":
+            cur = coaching.LEVELS[level_index][0] if level_index is not None else None
+            chips = "".join(
+                f"<span class='da-step{' on' if name == cur else ''}'><small>{escape(name)}</small>"
+                f"<b class='da-num'>{escape(coaching.fmt(key, val))}</b></span>"
+                for name, val in coaching.ladder(key))
+            st.markdown("<div class='da-muted'>Target at each level (you're working towards the "
+                        f"highlighted one)</div><div class='da-ladder'>{chips}</div>", unsafe_allow_html=True)
+        mode, drill = coaching.DRILLS[key]
+        st.markdown(f":material/fitness_center: **To improve ({mode}):** {drill}")
+
+
 def _priority_card(i, s, doubles):
     mode, drill = coaching.DRILLS[s.key]
     extra = ""
@@ -250,12 +280,15 @@ def _how_it_works():
             "- **Visits** are scoring turns from match legs (before the double zone) and Score Training.\n"
             "- **Finishing** = checkouts ÷ turns where you could finish. **Doubles** = hits ÷ darts at "
             "doubles from matches, Around the Clock (Doubles) and Doubles Training.\n"
-            "- **Recovery** = after a visit of 40 or less, how often the next visit reaches your average.\n"
+            "- **Recovery** = how often the visit after a bad one (40 or less) reaches your average, "
+            "compared with how often any visit does. 100% = a bad visit doesn't affect the next.\n"
             "- **Stamina** = last 3 vs first 3 turns of Score Training sessions of 6+ turns.\n"
-            "- A skill needs a minimum sample before it's rated, so a few lucky darts don't move it.")
+            "- A skill needs a minimum sample before it's rated, so a few lucky darts don't move it.\n"
+            "- Strong start (100%), Recovery (100%) and Stamina (−5%) have the same target at every "
+            "level. The others step up with your level, as below.")
         rows = [{"Level": n, "Scoring average": f"{low}+", "Finishing": f"{t['finishing']}%",
                  "Doubles": f"{t['doubles']}%", "Consistency": f"{t['consistency']}%",
-                 "Recovery": f"{t['recovery']}%", "Hours / week": t["volume"]}
+                 "Hours / week": t["volume"]}
                 for n, low, t in coaching.LEVELS]
         st.dataframe(pd.DataFrame(rows), hide_index=True, width="stretch")
 
@@ -296,6 +329,9 @@ def render_coaching_page(player_name, t_func, player_id=None, matches=None, all_
     _profile_chart(skills)
     with st.expander("Skill table"):
         _profile_table(skills)
+
+    st.markdown("##### Understand each skill")
+    _explainer(skills, prio[0].key if prio else "scoring", level_index)
 
     # 3. Priorities
     st.markdown("##### Your priorities")

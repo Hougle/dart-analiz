@@ -256,6 +256,14 @@ div[data-testid="stAlert"] > div {{ border-radius: 10px; }}
               color: var(--da-text); font-size: 0.9rem; }}
 .da-block-t .da-muted {{ margin-left: auto; white-space: nowrap; }}
 
+/* ---------- coaching: target ladder */
+.da-ladder {{ display: flex; flex-wrap: wrap; gap: 6px; margin: 0.35rem 0 0.7rem; }}
+.da-step {{ display: inline-flex; flex-direction: column; min-width: 74px; padding: 0.35rem 0.6rem;
+           border: 1px solid var(--da-border); border-radius: 8px; background: var(--da-card2); }}
+.da-step small {{ color: var(--da-muted); font-size: 0.72rem; }}
+.da-step b {{ color: var(--da-text); font-size: 0.9rem; font-weight: 600; }}
+.da-step.on {{ border-color: var(--da-accent); background: var(--da-accent-soft); }}
+
 /* ---------- headings */
 h3 {{ letter-spacing: -0.015em; }}
 h4, h5 {{

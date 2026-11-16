@@ -33,7 +33,7 @@ Seven skills. Each has a raw value, a target, a score (% of target, capped at 12
 | Finishing | Checkouts ÷ checkout chances (turns in the double zone, plus finishes from higher) | yes | 20 chances |
 | Doubles accuracy | Hits ÷ darts at doubles, all sources combined | yes | 50 darts |
 | Consistency | 100 − coefficient of variation of visit scores | yes | 30 visits |
-| Recovery | After a visit of 40 or less, % of next visits (same leg/session) that reach the player's average visit | yes | 10 bad visits |
+| Recovery | How often the visit after a bad one (40 or less, same leg/session) reaches the player's average, ÷ how often any visit does, × 100 | yes, target 100% | 10 bad visits |
 | Stamina | Mean of the last 3 vs the first 3 turns of each Score Training session (≥ 6 turns), in % | yes, target −5% or better | 3 sessions |
 | Practice volume | Hours played per week (weeks from the first to the last game in the period) | yes | 1 game |
 
@@ -41,17 +41,18 @@ Seven skills. Each has a raw value, a target, a score (% of target, capped at 12
 
 The level comes from scoring power. Each skill's target is the value expected at the **next** level, so targets move up as the player improves.
 
-| Level | Scoring average | Finishing % | Doubles % | Consistency | Recovery % | Volume h/week |
-|---|---|---|---|---|---|---|
-| Starter | < 35 | 10 | 8 | 40 | 30 | 1.5 |
-| Developing | 35–45 | 12 | 10 | 45 | 35 | 2 |
-| Club | 45–55 | 16 | 14 | 50 | 40 | 3 |
-| League | 55–65 | 20 | 18 | 55 | 45 | 4 |
-| Advanced | 65–80 | 25 | 24 | 60 | 50 | 5 |
-| Elite | 80+ | 30 | 30 | 65 | 55 | 6 |
+| Level | Scoring average | Finishing % | Doubles % | Consistency | Volume h/week |
+|---|---|---|---|---|---|
+| Starter | < 35 | 10 | 8 | 40 | 1.5 |
+| Developing | 35–45 | 12 | 10 | 45 | 2 |
+| Club | 45–55 | 16 | 14 | 50 | 3 |
+| League | 55–65 | 20 | 18 | 55 | 4 |
+| Advanced | 65–80 | 25 | 24 | 60 | 5 |
+| Elite | 80+ | 30 | 30 | 65 | 6 |
 
 - **Scoring power** targets the bottom of the next band (Elite targets 90).
 - **Strong start** always targets 100%.
+- **Recovery** always targets 100%: a bad visit doesn't affect the next one. (The plain after-bad rate isn't used: most visits land below the average, so even an unflappable player reaches it only about 40% of the time.)
 - **Stamina** always targets −5%.
 
 ### Score and status
@@ -113,6 +114,7 @@ The level comes from scoring power. Each skill's target is the value expected at
    - a level card: level name, scoring average, and a progress bar to the next level showing how much is still needed
    - 3 metrics: skills on target (n of rated), top priority, weekly time
 2. **Skill profile:** a horizontal bar per skill showing % of target, coloured and labelled by status. A table with value, target and sample sits in an expander.
+   - **Understand each skill:** pick a skill to see what it measures, how it's calculated, why the target is what it is (`coaching.EXPLAIN`), the player's own numbers behind it, the target at every level (`coaching.ladder`) and the drill.
 3. **Your priorities:** 3 cards (side by side on desktop, stacked on a phone).
 4. **This week's plan:** one card per session, with blocks, minutes and darts.
 5. **Progress:** a then-vs-now table, then trends for the priorities.
