@@ -17,10 +17,7 @@ API_BASE = "https://api.dartcounter.net"
 
 
 def _get_turso_credentials():
-    """Turso URL ve token'ı ortam değişkenleri, Streamlit secrets veya .env'den alır."""
-    url, token = os.environ.get("TURSO_DATABASE_URL"), os.environ.get("TURSO_AUTH_TOKEN")
-    if url and token:  # GitHub Actions passes secrets as environment variables
-        return (url.replace("libsql://", "https://", 1) if url.startswith("libsql://") else url), token
+    """Turso URL ve token'ı Streamlit secrets veya .env'den alır."""
     try:
         import streamlit as st
         url = st.secrets.get("TURSO_DATABASE_URL")
@@ -188,8 +185,6 @@ def to_date_str(timestamp):
 # st.secrets or .env) so a leaked database does not leak a usable token.
 
 def _secret(name):
-    if os.environ.get(name):
-        return os.environ[name].strip()
     try:
         import streamlit as st
         if name in st.secrets:
@@ -273,13 +268,6 @@ def get_setting(key):
         return None
 
 
-def mark_synced(source="app"):
-    """Store when the last sync ran, in Istanbul time (Cloud and CI servers run on UTC)."""
-    from zoneinfo import ZoneInfo
-    now = datetime.now(ZoneInfo("Europe/Istanbul")).strftime("%d %b %Y, %H:%M")
-    save_setting("last_sync", now + (" (auto)" if source == "auto" else ""))
-
-
 def save_connected_player(user_id, player_name):
     now = datetime.now().strftime("%Y-%m-%d %H:%M")
     for key, val in (("player_user_id", str(user_id)), ("player_name", player_name or "")):
@@ -336,10 +324,7 @@ def load_token():
     stored, _ = connected_token_info()
     if stored:
         return stored
-    # 2) environment (GitHub Actions) / 3) st.secrets / 4) .env
-    env_token = os.environ.get("DARTCOUNTER_TOKEN", "").strip()
-    if len(env_token) > 20:
-        return env_token
+    # 2) st.secrets / 3) .env
     try:
         import streamlit as st
         if "DARTCOUNTER_TOKEN" in st.secrets:

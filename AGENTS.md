@@ -27,7 +27,7 @@ python -m py_compile *.py
 | `app.py` | Entry point: auth, sidebar actions, data loading, period picker, the 5 main tabs (Home, Matches, Doubles, Practice, Coaching) |
 | `home_tab.py` | Home tab: this week vs last week, best/weakest double, one trend, recent activity, last sync |
 | `dartcounter_api.py` | DartCounter API client, Turso HTTP client (`turso_query`, `turso_execute`), schema setup, match import. Also a CLI: `python dartcounter_api.py <match URL or ID>` |
-| `sync.py` | Imports the connected player's whole DartCounter history (matches, Score Training, Around the Clock, Singles, Doubles Training), skipping what's stored. `detect_player(token)` finds the token owner · CLI: `python sync.py` (this + last year) or `--all`; exits non-zero on errors |
+| `sync.py` | Imports the connected player's whole DartCounter history (matches, Score Training, Around the Clock, Singles, Doubles Training), skipping what's stored. `detect_player(token)` finds the token owner |
 | `practice_tab.py` | Practice tab (Score Training, Around the Clock, Singles, Doubles Training), `session_table()` and the cached `load_all_practice_data()` |
 | `doubles_training_tab.py` | Doubles Training sub-tab, called from `practice_tab.py` |
 | `singles_tab.py` | Singles Training sub-tab, called from `practice_tab.py` |
@@ -72,13 +72,6 @@ python -m py_compile *.py
 - Tables: show dates with `ui_helpers.date_column()` (readable but sortable), plain column names, newest first. Use `width="stretch"`, not the deprecated `use_container_width`.
 - Don't make up placeholder data in charts. If data is missing, show an `st.info` message.
 - **Charts:** build them with `plotly.graph_objects`, render them with `ui_helpers.chart()`, and take colors from `ui_helpers.colors()` roles (`you` = player/adjusted, `alt` = second series, `neutral` = opponents). Don't force `template="plotly_dark"` or hard-code hex. Plot time on a real datetime axis. Never use dual y-axes; use small multiples instead. Use straight lines, not splines (sessions cluster minutes apart). For trends over time use `ui_helpers.daily_trend()` (one point per day, min–max bar, overall-mean line, latest value labelled) instead of per-session dots with a rolling line, which stack up on busy days. Put metric explanations in `help=`, not in `delta=`.
-
-## Automatic sync
-
-- `.github/workflows/sync.yml` runs `python sync.py` every night at 00:00 Istanbul time (21:00 UTC) and on demand (Actions → Sync DartCounter → Run workflow).
-- It reads `TURSO_DATABASE_URL`, `TURSO_AUTH_TOKEN`, `DARTCOUNTER_TOKEN` (and optionally `TOKEN_ENCRYPTION_KEY`) from GitHub repository secrets. Config readers in `dartcounter_api.py` check environment variables first, then `st.secrets`, then `.env`.
-- Each sync stores its time with `mark_synced()` in `app_settings.last_sync` (Istanbul time, "(auto)" for scheduled runs); the sidebar and Home show it.
-- A failed run (rejected token, import errors) fails the workflow, so GitHub emails the repo owner. A rejected token means: copy a fresh DartCounter token into the `DARTCOUNTER_TOKEN` secret.
 
 ## Known limits (as of 2026-11-15)
 
