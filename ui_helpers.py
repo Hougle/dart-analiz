@@ -157,6 +157,11 @@ _THEME_CSS = """
 }}
 
 /* ---------- page frame */
+div[data-testid="stElementContainer"]:has(iframe[title*="theme_watch"]),
+div.element-container:has(iframe[title*="theme_watch"]) {{
+    position: absolute !important; width: 0 !important; height: 0 !important;
+    overflow: hidden !important; margin: 0 !important; padding: 0 !important;
+}}
 header[data-testid="stHeader"] {{ background: transparent; }}
 [data-testid="stAppDeployButton"], [data-testid="stHeaderActionElements"] {{ display: none !important; }}
 div[data-testid="stMainBlockContainer"] {{
@@ -296,9 +301,32 @@ _MARK = ('<svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="wh
          '<path d="M12 3v3M12 18v3M3 12h3M18 12h3"/></svg>')
 
 
+_theme_watch = None
+
+
+def watch_theme():
+    """Rerun when the viewer switches light/dark after the page loaded.
+
+    Streamlit doesn't rerun on a theme switch, so CSS and charts built for the old
+    theme would stay. The invisible theme_watch component reports the new theme,
+    which reruns the script with st.context.theme updated.
+    """
+    global _theme_watch
+    try:
+        if _theme_watch is None:
+            import os
+            import streamlit.components.v1 as components
+            _theme_watch = components.declare_component(
+                "theme_watch", path=os.path.join(os.path.dirname(os.path.abspath(__file__)), "theme_watch"))
+        _theme_watch(server="dark" if is_dark() else "light", key="theme_watch", default=None)
+    except Exception:
+        pass  # without it, a theme switch just waits for the next rerun
+
+
 def inject_theme_css():
     """Call once at the top of the page, after st.set_page_config."""
     st.markdown(_THEME_CSS.format(**tokens()), unsafe_allow_html=True)
+    watch_theme()
 
 
 inject_mobile_css = inject_theme_css  # old name
