@@ -147,7 +147,7 @@ def _reliable_doubles(stats, t):
         hovertemplate="<b>%{y}</b><br>" + t("Hit rate") + ": %{x:.1%}<br>%{customdata[0]} / "
                       "%{customdata[1]} " + t("darts") + "<br>" + t("Confidence-adjusted")
                       + ": %{customdata[2]}%<extra></extra>"))
-    fig.update_layout(title=t("Doubles ranked by reliability (best at the top)"), showlegend=False,
+    fig.update_layout(title=t("Doubles ranked by reliability"), showlegend=False,
                       xaxis=dict(title=t("Hit rate"), tickformat=".0%",
                                  range=[0, max(r["value"].max() * 1.35, 0.05)]),
                       yaxis=dict(title="", type="category"))

@@ -211,13 +211,6 @@ def last_sync_time():
     return dartcounter_api.get_setting("last_sync")
 
 
-def make_label(date, opponent, n=12):
-    opp = clean_name(opponent) or ""
-    if len(opp) > n:
-        opp = opp[:n - 1] + "…"
-    return f"{str(date)[5:16]} {opp}"
-
-
 def refresh_cache():
     st.cache_data.clear()
 
@@ -229,7 +222,7 @@ with st.sidebar:
     if st.session_state.get("role") == "visitor":
         with st.expander(t("Admin login"), icon=":material/lock:", expanded=False):
             authenticator.login(
-                location="sidebar",
+                location="main",  # "main" draws the form where it's called, i.e. inside this expander
                 key="admin_login",
             )
             
@@ -497,7 +490,7 @@ with tab_matches:
                 x=by_turn['turn'], y=by_turn['mean'].round(1),
                 marker=dict(color=C['alt'], cornerradius=4), customdata=by_turn['count'],
                 hovertemplate=t("Turn") + " %{x}: %{y:.1f}<br>%{customdata} " + t("turns") + "<extra></extra>"))
-            fig3.update_layout(title=t("Average score by turn number (scoring turns only)"),
+            fig3.update_layout(title=t("Average score by turn number"),
                                xaxis=dict(title=t('Turn'), dtick=1), yaxis_title=t('Average score'))
             ui_helpers.chart(fig3, key="by_turn")
             st.caption(t("Only turns before the double zone, and only turn numbers with at least 10 samples."))
@@ -537,9 +530,10 @@ with tab_matches:
                                      marker=dict(color=C['you'], size=12), customdata=hover,
                                      hovertemplate=PLAYER + ": %{x:.2f}<br>%{customdata[0]} "
                                                    + t("matches") + " · %{customdata[1]}–%{customdata[2]}<extra></extra>"))
-            fig.update_layout(title=t("Your average vs your opponent's (W–L in brackets)"),
+            fig.update_layout(title=t("You vs your opponents"),
                               xaxis_title=t('3-dart average'), yaxis_title="")
             ui_helpers.chart(fig, key="opp_dumbbell", height=max(300, 34 * len(o) + 120))
+            st.caption(t("Each row is one opponent: your average and theirs. Wins–losses are in brackets."))
 
     with m_best:
         if efe_complete.empty:
@@ -664,18 +658,14 @@ with tab_doubles:
                                 'num_failed_doubles': t('Without checkout'),
                                 'cost': t('Average lost to doubles')}, key="dbl_matches")
 
-        comp_df = efe_complete.sort_values('date').copy()
-        comp_df['label'] = comp_df.apply(lambda r: make_label(r['date'], r['opponent']), axis=1)
+        comp_df = efe_complete.copy()
+        comp_df['when'] = pd.to_datetime(comp_df['date'], errors='coerce')
         comp_df['diff'] = comp_df['adjusted_avg'] - comp_df['avg']
-        fig = go.Figure(go.Bar(
-            x=comp_df['label'], y=comp_df['diff'], marker=dict(color=C['you'], cornerradius=4),
-            customdata=list(zip(comp_df['avg'], comp_df['adjusted_avg'])),
-            hovertemplate="%{x}<br>" + t("Average") + ": %{customdata[0]:.2f} → " + t("Adjusted")
-                          + ": %{customdata[1]:.2f}<br>+%{y:.2f}<extra></extra>"))
-        fig.update_layout(title=t("Average lost to the double zone, per match (oldest → newest)"),
-                          xaxis=dict(type='category', tickangle=-45, title=''),
-                          yaxis_title=t('Points of average'))
-        ui_helpers.chart(fig, key="dbl_cost")
+        ui_helpers.daily_trend(comp_df, 'when', [('diff', t('Average lost to doubles'), 'you')],
+                               t("Average lost to doubles per day"), y_title=t('Points of average'),
+                               unit=t("matches"), key="dbl_cost", decimals=2)
+        st.caption(t("Adjusted minus raw average: how much the double zone pulls your average down. "
+                     "Each dot is the mean of that day's matches."))
 
 with tab_practice:
     practice_tab.render(PLAYER, DB_PATH, t, player_id=PLAYER_ID)

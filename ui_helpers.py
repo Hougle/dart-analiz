@@ -162,7 +162,10 @@ div.element-container:has(iframe[title*="theme_watch"]) {{
     position: absolute !important; width: 0 !important; height: 0 !important;
     overflow: hidden !important; margin: 0 !important; padding: 0 !important;
 }}
-header[data-testid="stHeader"] {{ background: transparent; }}
+header[data-testid="stHeader"] {{
+    background: color-mix(in srgb, var(--da-bg) 88%, transparent);
+    backdrop-filter: blur(8px); -webkit-backdrop-filter: blur(8px);
+}}
 [data-testid="stAppDeployButton"], [data-testid="stHeaderActionElements"] {{ display: none !important; }}
 div[data-testid="stMainBlockContainer"] {{
     max-width: 1240px; padding-top: 2.75rem; padding-bottom: 4rem;
@@ -201,6 +204,13 @@ div[data-testid="stMetric"] {{
     border-radius: 12px; padding: 0.85rem 1rem 0.8rem; box-shadow: var(--da-shadow);
     height: 100%;
 }}
+/* Metric cards in one row share the tallest card's height. */
+div[data-testid="stHorizontalBlock"]:has(div[data-testid="stMetric"]) {{ align-items: stretch; }}
+div[data-testid="stHorizontalBlock"]:has(div[data-testid="stMetric"]) > div[data-testid="stColumn"] > div,
+div[data-testid="stHorizontalBlock"]:has(div[data-testid="stMetric"]) div[data-testid="stElementContainer"]:has(> div[data-testid="stMetric"]),
+div[data-testid="stHorizontalBlock"]:has(div[data-testid="stMetric"]) div[data-testid="stElementContainer"]:has(> div > div[data-testid="stMetric"]) {{
+    height: 100%;
+}}
 div[data-testid="stMetricLabel"] p {{
     color: var(--da-muted); font-size: 0.78rem; font-weight: 500; letter-spacing: 0.01em;
 }}
@@ -216,6 +226,11 @@ div[data-testid="stExpander"] details {{
     background: var(--da-card); border-color: var(--da-border); border-radius: 12px;
 }}
 div[data-testid="stAlert"] > div {{ border-radius: 10px; }}
+
+/* ---------- HTML chart legend (ui_helpers.html_legend) */
+.da-legend {{ display: flex; flex-wrap: wrap; gap: 0.35rem 1rem; margin: -0.35rem 0 0.4rem 0.2rem; }}
+.da-key {{ display: inline-flex; align-items: center; gap: 0.4rem; font-size: 0.8rem; color: var(--da-muted); }}
+.da-key i {{ width: 10px; height: 10px; border-radius: 3px; display: inline-block; }}
 
 /* ---------- headings */
 h3 {{ letter-spacing: -0.015em; }}
@@ -359,6 +374,18 @@ def metric_grid(metrics, cols=7, key=None):
 CHART_FONT = "Inter, -apple-system, Segoe UI, sans-serif"
 
 
+def html_legend(items):
+    """Legend as wrapping HTML chips, for charts with many series: Plotly sizes legend
+    entries from the plot width, so on a phone they stack one per row and squeeze the plot.
+
+    items: list of (label, colour).
+    """
+    from html import escape
+    chips = "".join(f'<span class="da-key"><i style="background:{col}"></i>{escape(lab)}</span>'
+                    for lab, col in items)
+    st.markdown(f'<div class="da-legend">{chips}</div>', unsafe_allow_html=True)
+
+
 def chart(fig, key=None, height=340, margin=None):
     """Render a Plotly figure with the shared, theme-aware styling."""
     c = colors()
@@ -371,7 +398,9 @@ def chart(fig, key=None, height=340, margin=None):
         margin=margin or dict(t=60, b=40, l=52, r=20),
         title=dict(font=dict(family=CHART_FONT, size=14, color=c["text"], weight=600),
                    x=0, xref="container", xanchor="left", y=0.98, yanchor="top", pad=dict(l=12)),
-        legend=dict(orientation="h", yanchor="bottom", y=1.0, xanchor="right", x=1,
+        # Legend at the bottom left of the card: on a phone it wraps into extra rows,
+        # and down here those rows push the plot up instead of colliding with the title.
+        legend=dict(orientation="h", yref="container", yanchor="bottom", y=0.01, xanchor="left", x=0,
                     font=dict(size=11, color=c["muted"]), title_text="", bgcolor="rgba(0,0,0,0)"),
         hoverlabel=dict(bgcolor=c["card"], bordercolor=c["border"],
                         font=dict(family=CHART_FONT, size=12, color=c["text"])),

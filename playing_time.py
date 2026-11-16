@@ -98,7 +98,8 @@ def render(matches, player, player_id=None, key="time_played"):
             x=x, y=vals, name=name, width=5 * 86_400_000,
             marker=dict(color=color, line=dict(color=c["card"], width=1.5)),
             customdata=list(zip(table.index.strftime("%d %b"), table[name].map(fmt_minutes))),
-            hovertemplate="Week of %{customdata[0]}<br><b>" + name + ": %{customdata[1]}</b><extra></extra>"))
+            hovertemplate="Week of %{customdata[0]}<br><b>" + name + ": %{customdata[1]}</b><extra></extra>",
+            showlegend=False))
     totals = table.sum(axis=1)
     fig.add_trace(go.Scatter(
         x=x, y=totals / 60, mode="text", showlegend=False, hoverinfo="skip",
@@ -109,8 +110,9 @@ def render(matches, player, player_id=None, key="time_played"):
                                  range=[0, max(totals.max() / 60 * 1.18, 0.5)]),
                       xaxis=dict(title="", tickformat="%d %b", hoverformat="%d %b",
                                  tickvals=x, ticktext=table.index.strftime("%d %b")),
-                      hovermode="closest", legend=dict(traceorder="normal"))
-    ui_helpers.chart(fig, key=key, height=340)
+                      hovermode="closest")
+    ui_helpers.chart(fig, key=key, height=320)
+    ui_helpers.html_legend([(n, col) for n, col in zip(ACTIVITIES, palette) if table[n].any()])
     st.caption("Weeks run Monday to Sunday. Time is from the start to the end of each game.")
 
     with st.expander("Table"):
