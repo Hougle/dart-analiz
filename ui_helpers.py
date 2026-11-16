@@ -126,9 +126,27 @@ MOBILE_CSS = """
         flex-wrap: wrap !important;
         gap: 0.4rem !important;
     }
-    div[data-testid="stHorizontalBlock"] > div[data-testid="column"] {
-        min-width: 45% !important;
-        flex: 1 1 45% !important;
+    /* Metric rows: two per row on phones instead of one ("column" = Streamlit < 1.40).
+       Rows of charts keep stacking full width. */
+    div[data-testid="stHorizontalBlock"]:has(div[data-testid="stMetric"]) > div[data-testid="stColumn"],
+    div[data-testid="stHorizontalBlock"]:has(div[data-testid="stMetric"]) > div[data-testid="column"] {
+        min-width: calc(50% - 0.4rem) !important;
+        width: calc(50% - 0.4rem) !important;
+        flex: 1 1 calc(50% - 0.4rem) !important;
+    }
+    /* Less empty space above the title. */
+    div[data-testid="stMainBlockContainer"], .block-container {
+        padding-top: 3.2rem !important;
+        padding-left: 1rem !important;
+        padding-right: 1rem !important;
+    }
+    /* Period picker: all four choices on one line. */
+    div[data-testid="stButtonGroup"] button {
+        padding: 0.25rem 0.55rem !important;
+        min-height: 2rem !important;
+    }
+    div[data-testid="stButtonGroup"] button p {
+        font-size: 0.8rem !important;
     }
     div[data-testid="stMetricValue"] {
         font-size: 1.1rem !important;

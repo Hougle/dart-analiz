@@ -14,7 +14,13 @@ pip install -r requirements.txt
 streamlit run app.py
 ```
 
-There is no test suite. To check a change, run the app and open the affected tab. A quick compile check:
+Tests cover the calculations (adjusted average, double zone, darts stats, doubles ranking, period filter, Turso batches). They use only the standard library:
+
+```bash
+python -m unittest discover -s tests -t .
+```
+
+For UI changes, also run the app and open the affected tab (check a phone width too). A quick compile check:
 
 ```bash
 python -m py_compile *.py
@@ -25,6 +31,7 @@ python -m py_compile *.py
 | File | Role |
 |---|---|
 | `app.py` | Entry point: auth, sidebar actions, data loading, period picker, the 5 main tabs (Home, Matches, Doubles, Practice, Coaching) |
+| `match_stats.py` | Pure match calculations, no Streamlit: `mark_double_attempts`, `adjusted_stats`, `per_match_stats`, `darts_stats` (first 9, checkout %, highest checkout, best 501 leg, 180/140+/100+). Tested in `tests/` |
 | `home_tab.py` | Home tab: this week vs last week, best/weakest double, one trend, recent activity, last sync |
 | `dartcounter_api.py` | DartCounter API client, Turso HTTP client (`turso_query`, `turso_execute`), schema setup, match import. Also a CLI: `python dartcounter_api.py <match URL or ID>` |
 | `sync.py` | Imports the connected player's whole DartCounter history (matches, Score Training, Around the Clock, Singles, Doubles Training), skipping what's stored. `detect_player(token)` finds the token owner |
@@ -60,7 +67,7 @@ python -m py_compile *.py
 ## Domain rules
 
 - **Raw average** = total score / total darts × 3.
-- **Adjusted average** leaves out double attempts. Once a leg's remaining score first reaches ≤ 40 (or exactly 50), that turn and every later turn in the leg count as double attempts (`mark_double_attempts` in `app.py`).
+- **Adjusted average** leaves out double attempts. Once a leg's remaining score first reaches ≤ 40 (or exactly 50), that turn and every later turn in the leg count as double attempts (`mark_double_attempts` in `match_stats.py`).
 - **Practice metrics** (std dev, bounce-back, fatigue/decay, consistency) are calculated from `practice_turns`. Group them by session and sort by turn before using `shift()` or turn-index logic.
 
 ## Conventions
@@ -75,5 +82,6 @@ python -m py_compile *.py
 
 ## Known limits (as of 2026-11-15)
 
-- Turso writes are one HTTP request per row, so a first sync of a long history takes several minutes.
+- Writes go through `turso_batch()`: one all-or-nothing HTTP request per match or practice session. Don't write rows one by one with `turso_execute` in loops.
+- Sync still does one existence check (one request) per game it looks at, so walking a long history takes a while even when nothing is new.
 - `load_data()` in `app.py` always tries Turso first and falls back to `dart.db` on any error.

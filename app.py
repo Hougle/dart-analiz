@@ -11,6 +11,7 @@ import streamlit_authenticator as stauth
 import practice_tab
 import coaching_page
 import ui_helpers
+from match_stats import adjusted_stats, darts_stats, mark_double_attempts, per_match_stats
 import doubles_section
 import home_tab
 
@@ -224,60 +225,6 @@ def refresh_cache():
     st.cache_data.clear()
 
 
-def is_double_attempt(remaining_before):
-    if remaining_before is None:
-        return False
-    try:
-        rb = int(remaining_before)
-    except (ValueError, TypeError):
-        return False
-    if 0 < rb <= 40 and rb % 2 == 0:
-        return True
-    if rb == 50:
-        return True
-    return False
-
-
-def mark_double_attempts(throws_df):
-    if throws_df.empty or "leg_id" not in throws_df.columns:
-        df = throws_df.copy()
-        df["is_dbl"] = df["remaining_before"].apply(is_double_attempt)
-        return df
-
-    df = throws_df.sort_values(["leg_id", "turn"]).reset_index(drop=True).copy()
-    
-    # Optimize edilmiş vektörel yöntem
-    rb_numeric = pd.to_numeric(df["remaining_before"], errors="coerce")
-    trigger = ((rb_numeric > 0) & (rb_numeric <= 40)) | (rb_numeric == 50)
-    df["is_dbl"] = trigger.groupby(df["leg_id"]).cumsum() > 0
-
-    return df
-
-
-def adjusted_stats(throws_df):
-    if throws_df.empty:
-        return 0, 0, 0, 0, 0
-
-    total_score = throws_df['score_thrown'].sum()
-    total_darts = throws_df['darts_thrown'].sum()
-    normal_avg = (total_score / total_darts * 3) if total_darts > 0 else 0
-
-    tdf = mark_double_attempts(throws_df)
-
-    num_dbl = int(tdf['is_dbl'].sum())
-    # A double attempt only succeeds when it checks out (remaining hits 0);
-    # setup shots like 32 -> 16 are not successes.
-    checked_out = pd.to_numeric(tdf['remaining_after'], errors='coerce') == 0
-    num_failed = int((tdf['is_dbl'] & ~checked_out).sum())
-
-    filtered = tdf[~tdf['is_dbl']]
-    if filtered.empty or filtered['darts_thrown'].sum() == 0:
-        return normal_avg, 0, num_dbl, num_failed, normal_avg
-
-    adj_avg = (filtered['score_thrown'].sum() / filtered['darts_thrown'].sum()) * 3
-    return adj_avg, int(filtered['darts_thrown'].sum()), num_dbl, num_failed, normal_avg
-
-
 # ============================================================
 # SIDEBAR
 # ============================================================
@@ -421,30 +368,6 @@ if PLAYER_ID is not None and 'player_user_id' in throws.columns:
 else:
     efe_throws = throws[throws['player_name'] == PLAYER].copy()
 
-def per_match_stats(marked):
-    """Raw/adjusted average and double counts for every match in one pass."""
-    cols = ['match_id', 'calculated_avg', 'adjusted_avg', 'num_double_attempts', 'num_failed_doubles']
-    if marked.empty:
-        return pd.DataFrame(columns=cols)
-    df = marked.assign(
-        score=pd.to_numeric(marked['score_thrown'], errors='coerce').fillna(0),
-        darts=pd.to_numeric(marked['darts_thrown'], errors='coerce').fillna(0),
-        checked_out=pd.to_numeric(marked['remaining_after'], errors='coerce') == 0)
-    df['scoring'] = ~df['is_dbl']
-    df['adj_score'] = df['score'].where(df['scoring'], 0)
-    df['adj_darts'] = df['darts'].where(df['scoring'], 0)
-    df['failed'] = df['is_dbl'] & ~df['checked_out']
-    g = df.groupby('match_id').agg(score=('score', 'sum'), darts=('darts', 'sum'),
-                                   adj_score=('adj_score', 'sum'), adj_darts=('adj_darts', 'sum'),
-                                   num_double_attempts=('is_dbl', 'sum'),
-                                   num_failed_doubles=('failed', 'sum')).reset_index()
-    g['calculated_avg'] = (g['score'] / g['darts'].where(g['darts'] > 0) * 3).fillna(0)
-    # A match with no scoring turns falls back to the raw average (same as adjusted_stats).
-    g['adjusted_avg'] = (g['adj_score'] / g['adj_darts'].where(g['adj_darts'] > 0) * 3) \
-        .fillna(g['calculated_avg'])
-    return g[cols]
-
-
 efe_matches = efe_matches.merge(
     per_match_stats(mark_double_attempts(efe_throws) if not efe_throws.empty else efe_throws.assign(is_dbl=False)),
     on='match_id', how='left')
@@ -466,8 +389,7 @@ win_rate = (wins / total_matches * 100) if total_matches > 0 else 0
 # Headline numbers use the same finished matches as the match and win counts.
 complete_throws = period_throws[period_throws['match_id'].isin(efe_complete['match_id'])]
 adj_avg_all, adj_darts_all, total_dbl, total_failed, overall_avg = adjusted_stats(complete_throws)
-efe_180s = int((complete_throws['score_thrown'] == 180).sum())
-efe_100s = int((complete_throws['score_thrown'] >= 100).sum())
+ds = darts_stats(complete_throws)
 
 RESULT_TXT = {'won': t('Won'), 'lost': t('Lost')}
 RESULT_ICON = {'won': '✅', 'lost': '❌'}
@@ -511,8 +433,18 @@ with tab_matches:
     c4.metric(t("Adjusted"), f"{adj_avg_all:.2f}",
               help=t("3-dart average without double-zone turns (remaining 40 or less, or 50). "
                      "It shows your scoring power.") + f" {adj_avg_all - overall_avg:+.2f}")
-    st.caption(f"{wins} {t('won')} · {losses} {t('lost')} · 180s: {efe_180s} · 100+: {efe_100s} · "
-               f"{ui_helpers.period_label()}")
+    d1, d2, d3, d4 = st.columns(4)
+    d1.metric(t("First 9 avg"), f"{ds['first9']:.2f}" if ds['first9'] is not None else "–",
+              help=t("3-dart average over your first three turns of every leg."))
+    d2.metric(t("Checkout %"), ui_helpers.pct(ds['checkout']) if ds['checkout'] is not None else "–",
+              help=t("Legs you finished, divided by turns where you could finish: every turn once "
+                     "you're on 40 or less (or 50), plus any finish from higher.")
+              + f" {ds['checkouts']} / {ds['checkout_chances']}")
+    d3.metric(t("Highest checkout"), ds['high_out'] or "–")
+    d4.metric(t("Best leg"), f"{ds['best_leg']} {t('darts')}" if ds['best_leg'] else "–",
+              help=t("Fewest darts you needed to win a 501 leg."))
+    st.caption(f"{wins} {t('won')} · {losses} {t('lost')} · 180s: {ds['t180']} · 140+: {ds['t140']} · "
+               f"100+: {ds['t100']} · {ui_helpers.period_label()}")
 
     m_over, m_prog, m_opp, m_best, m_list = st.tabs([
         t("Overview"), t("Progress"), t("Opponents"), t("Best & worst"), t("Match list")])

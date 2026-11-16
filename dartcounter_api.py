@@ -127,6 +127,46 @@ def turso_execute(sql, args=None):
     return result.get("response", {}).get("result", {})
 
 
+def _batch_body(statements):
+    """One Hrana pipeline request that runs every statement in a transaction.
+
+    Each step only runs if the one before it succeeded; COMMIT runs only if the
+    last statement did, otherwise ROLLBACK, so a failure writes nothing.
+    """
+    steps = [{"stmt": {"sql": "BEGIN"}}]
+    for sql, args in statements:
+        steps.append({"stmt": {"sql": sql, "args": [_to_turso_arg(a) for a in (args or [])]},
+                      "condition": {"type": "ok", "step": len(steps) - 1}})
+    commit = len(steps)
+    steps.append({"stmt": {"sql": "COMMIT"}, "condition": {"type": "ok", "step": commit - 1}})
+    steps.append({"stmt": {"sql": "ROLLBACK"},
+                  "condition": {"type": "not", "cond": {"type": "ok", "step": commit}}})
+    return {"requests": [{"type": "batch", "batch": {"steps": steps}}, {"type": "close"}]}
+
+
+def turso_batch(statements):
+    """Run many (sql, args) writes in one HTTP request, all or nothing.
+
+    Much faster than turso_execute per row: a match with 60 turns is one
+    request instead of 60.
+    """
+    statements = list(statements)
+    if not statements:
+        return
+    url, token = _get_turso_credentials()
+    if not url or not token:
+        raise RuntimeError("Turso credentials not found")
+    r = requests.post(f"{url}/v2/pipeline", json=_batch_body(statements), timeout=60,
+                      headers={"Authorization": f"Bearer {token}", "Content-Type": "application/json"})
+    r.raise_for_status()
+    result = (r.json().get("results") or [{}])[0]
+    if result.get("type") == "error":
+        raise RuntimeError(f"Turso error: {result.get('error')}")
+    errors = [e for e in result.get("response", {}).get("result", {}).get("step_errors", []) if e]
+    if errors:
+        raise RuntimeError(f"Turso SQL error (nothing written): {errors[0].get('message', errors[0])}")
+
+
 def turso_query(sql, args=None):
     """SELECT sorgusu çalıştırır, (columns, rows) döndürür."""
     result = turso_execute(sql, args)
@@ -561,11 +601,18 @@ def save_match(conn, data):
         p1_180s, p2_180s, "api",
     )
 
-    try:
-        if _turso_available():
-            turso_execute(insert_sql, list(args))
+    # On Turso the whole match goes out as one all-or-nothing batch at the end.
+    turso = _turso_available()
+    pending = []
+
+    def write(sql, a):
+        if turso:
+            pending.append((sql, list(a)))
         else:
-            conn.execute(insert_sql, args)
+            conn.execute(sql, a)
+
+    try:
+        write(insert_sql, args)
 
         legs = data.get("legs", [])
         leg_no = 0
@@ -586,10 +633,7 @@ def save_match(conn, data):
             leg_sql = "INSERT INTO legs (leg_id, match_id, leg_no, winner_name, winner_match_user_id) VALUES (?, ?, ?, ?, ?)"
             leg_args = [leg_id, match_id, leg_no, winner_name, winner_muid]
 
-            if _turso_available():
-                turso_execute(leg_sql, leg_args)
-            else:
-                conn.execute(leg_sql, leg_args)
+            write(leg_sql, leg_args)
 
             for leg_user in leg.get("users", []):
                 uid = leg_user.get("user_id")
@@ -629,17 +673,14 @@ def save_match(conn, data):
                         remaining_before, score, remaining_after, darts,
                     ]
 
-                    if _turso_available():
-                        turso_execute(throw_sql, throw_args)
-                    else:
-                        conn.execute(throw_sql, throw_args)
+                    write(throw_sql, throw_args)
 
         update_sql = "UPDATE matches SET p1_180s=?, p2_180s=? WHERE match_id=?"
         update_args = [p1_180s, p2_180s, match_id]
-        if _turso_available():
-            turso_execute(update_sql, update_args)
+        write(update_sql, update_args)
+        if turso:
+            turso_batch(pending)
         else:
-            conn.execute(update_sql, update_args)
             conn.commit()
     except Exception:
         # Don't leave a half-saved match behind: match_exists() would then skip it forever.

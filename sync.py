@@ -16,7 +16,7 @@ from datetime import datetime
 import requests
 
 from dartcounter_api import (
-    API_BASE, DB_PATH, _turso_available, turso_execute, turso_execute_script,
+    API_BASE, DB_PATH, _turso_available, turso_batch, turso_execute_script,
     turso_query, setup_database, match_exists, fetch_match, save_match,
 )
 
@@ -150,34 +150,53 @@ def _f(x):
 
 
 class _DB:
-    """Tiny writer over Turso or local SQLite."""
+    """Tiny writer over Turso or local SQLite.
+
+    On Turso, writes are buffered and sent as one all-or-nothing batch per
+    session (flushed before the next existence check), instead of one HTTP
+    request per row.
+    """
 
     def __init__(self):
         self.turso = _turso_available()
         self.conn = None if self.turso else sqlite3.connect(DB_PATH)
+        self.pending = []
         if self.turso:
             turso_execute_script(PRACTICE_SCHEMA)
         else:
             self.conn.executescript(PRACTICE_SCHEMA)
 
     def exists(self, sql, args):
+        self.flush()
         if self.turso:
             return len(turso_query(sql, list(args))[1]) > 0
         return self.conn.execute(sql, args).fetchone() is not None
 
     def run(self, sql, args):
         if self.turso:
-            turso_execute(sql, list(args))
+            self.pending.append((sql, list(args)))
         else:
             self.conn.execute(sql, args)
 
+    def flush(self):
+        if self.pending:
+            batch, self.pending = self.pending, []
+            turso_batch(batch)
+
+    def discard(self):
+        """Drop writes from a session that failed half-way, so it isn't saved incomplete."""
+        self.pending = []
+        if self.conn:
+            self.conn.rollback()
+
     def commit(self):
+        self.flush()
         if self.conn:
             self.conn.commit()
 
     def close(self):
+        self.commit()
         if self.conn:
-            self.conn.commit()
             self.conn.close()
 
 
@@ -369,7 +388,9 @@ def sync_all(token, years=None, log=print):
                     found += 1
                     try:
                         stats[kind] += saver(db, s)
+                        db.commit()
                     except Exception as e:
+                        db.discard()
                         stats["errors"] += 1
                         log(f"  ❌ {kind} {s.get('id')}: {e}")
                 db.commit()
