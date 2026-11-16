@@ -5,12 +5,7 @@ import re
 import streamlit as st
 import sqlite3
 import pandas as pd
-import plotly.express as px
 import plotly.graph_objects as go
-import subprocess
-import sys
-from pathlib import Path
-from datetime import datetime
 import streamlit_authenticator as stauth
 import practice_tab
 import coaching_page
@@ -23,7 +18,18 @@ ui_helpers.inject_mobile_css()
 
 DB_PATH = "dart.db"
 ENV_FILE = ".env"
-PLAYER = "Efe"
+DEFAULT_PLAYER = "Efe"  # used until a DartCounter account is connected
+
+
+@st.cache_data(ttl=60, show_spinner=False)
+def get_connected_player():
+    import dartcounter_api
+    return dartcounter_api.connected_player()
+
+
+# The dashboard shows whoever connected their DartCounter account.
+PLAYER_ID, _connected_name = get_connected_player()
+PLAYER = _connected_name or DEFAULT_PLAYER
 
 # ============================================================
 # AUTHENTICATION (Admin Login)
@@ -52,172 +58,86 @@ if "role" not in st.session_state:
     st.session_state["name"] = "Visitor"
     st.session_state["username"] = None
 
-# ---------------------------------------------------------------- LANGUAGE
-LANG = st.sidebar.radio("🌐 Language", ["EN", "TR"], horizontal=True, key="lang")
-
-EN = {
-    "🎯 DartCounter Analysis Dashboard": "🎯 DartCounter Analysis Dashboard",
-    "⚠️ DartCounter token not found or invalid.": "⚠️ DartCounter token not found or invalid.",
-    "### 🔑 How to get the token": "### 🔑 How to get the token",
-    "**1.** Log in to DartCounter in your browser: `https://app.dartcounter.net`": "**1.** Log in to DartCounter in your browser: `https://app.dartcounter.net`",
-    "**2.** Open any match page (Statistics → a match)": "**2.** Open any match page (Statistics → a match)",
-    "**3.** Open Developer Tools with `F12`": "**3.** Open Developer Tools with `F12`",
-    "**4.** Click the **Network** tab": "**4.** Click the **Network** tab",
-    "**5.** Select the **Fetch/XHR** filter": "**5.** Select the **Fetch/XHR** filter",
-    "**6.** Refresh the page (Cmd+R)": "**6.** Refresh the page (Cmd+R)",
-    "**7.** Find a request containing `api.dartcounter.net`": "**7.** Find a request containing `api.dartcounter.net`",
-    "**8.** Right-click → Copy → Copy as cURL": "**8.** Right-click → Copy → Copy as cURL",
-    "**9.** The part after `Bearer ` is your token": "**9.** The part after `Bearer ` is your token",
-    "**10.** Put it in the `.env` file in the project folder: `DARTCOUNTER_TOKEN=37520203|AbCdEf...`": "**10.** Put it in the `.env` file in the project folder: `DARTCOUNTER_TOKEN=37520203|AbCdEf...`",
-    "**11.** Save and refresh the page.": "**11.** Save and refresh the page.",
-    "💡 Once you have the token you can use it for a long time.": "💡 Once you have the token you can use it for a long time.",
-    "🔑 How to get the token": "🔑 How to get the token",
-    "🔑 Admin Login": "🔑 Admin Login",
-    "👤 Visitor": "👤 Visitor",
-    "🚪 Admin Logout": "🚪 Admin Logout",
-    "✅ Token active": "✅ Token active",
-    "⚙️ Actions": "⚙️ Actions",
-    "🔄 FETCH NEW MATCHES": "🔄 FETCH NEW MATCHES",
-    "matches are being fetched...": "matches are being fetched...",
-    "(no output)": "(no output)",
-    "✅ Update completed!": "✅ Update completed!",
-    "Update completed!": "Update completed!",
-    "❌ An error occurred": "❌ An error occurred",
-    "An error occurred": "An error occurred",
-    "❌ Invalid login": "❌ Invalid login",
-    "Error": "Error",
-    "📥 Add Match by URL": "📥 Add Match by URL",
-    "DartCounter match URL:": "DartCounter match URL:",
-    "Add This Match": "Add This Match",
-    "A token is required first.": "A token is required first.",
-    "Downloading...": "Downloading...",
-    "Match added!": "Match added!",
-    "URL is empty.": "URL is empty.",
-    "🔄 Fetch a Specific Year": "🔄 Fetch a Specific Year",
-    "Year:": "Year:",
-    "Fetch This Year's Matches": "Fetch This Year's Matches",
-    "Player": "Player",
-    "Database": "Database",
-    "No data yet. Press the 🔄 FETCH NEW MATCHES button in the sidebar.": "No data yet. Press the 🔄 FETCH NEW MATCHES button in the sidebar.",
-    "Total Matches": "Total Matches",
-    "Wins": "Wins",
-    "Losses": "Losses",
-    "Win %": "Win %",
-    "Raw Avg.": "Raw Avg.",
-    "Adjusted": "Adjusted",
-    "180s / 100+": "180s / 100+",
-    "📊 Overview": "📊 Overview",
-    "📈 Progress": "📈 Progress",
-    "👥 Opponents": "👥 Opponents",
-    "🎯 Double Trouble": "🎯 Double Trouble",
-    "🏆 Best / Worst": "🏆 Best / Worst",
-    "📋 Match List": "📋 Match List",
-    "🎯 Practice": "🎯 Practice",
-    "Date": "Date",
-    "Opponent": "Opponent",
-    "Result": "Result",
-    "Opp. Avg.": "Opp. Avg.",
-    "Match": "Match",
-    "Average": "Average",
-    "✅ Won": "✅ Won",
-    "❌ Lost": "❌ Lost",
-    "Last 10 Matches": "Last 10 Matches",
-    "Throw Score Distribution": "Throw Score Distribution",
-    "Score Distribution of All Throws": "Score Distribution of All Throws",
-    "Score": "Score",
-    "Frequency": "Frequency",
-    "Average Over Time — Raw vs Adjusted": "Average Over Time — Raw vs Adjusted",
-    "Raw Average Progress": "Raw Average Progress",
-    "Adjusted Average Progress": "Adjusted Average Progress",
-    "Adjusted Average": "Adjusted Average",
-    "Average Performance by Turn": "Average Performance by Turn",
-    "Average Score by Turn Number": "Average Score by Turn Number",
-    "Turn": "Turn",
-    "Average Score": "Average Score",
-    "Stats by Opponent": "Stats by Opponent",
-    "My Average by Opponent": "My Average by Opponent",
-    "🎯 Double Attempt Analysis": "🎯 Double Attempt Analysis",
-    "Double attempt: Once remaining score first drops to ≤ 40 in a leg, all subsequent turns in that leg count as double attempts.": "Double attempt: Once remaining score first drops to ≤ 40 in a leg, all subsequent turns in that leg count as double attempts.",
-    "Total Double Attempts": "Total Double Attempts",
-    "Failed Doubles": "Failed Doubles",
-    "Double Success %": "Double Success %",
-    "Double Attempts by Match": "Double Attempts by Match",
-    "Double Attempts": "Double Attempts",
-    "Failed": "Failed",
-    "Diff": "Diff",
-    "Raw vs Adjusted Comparison": "Raw vs Adjusted Comparison",
-    "Raw vs Adjusted by Match": "Raw vs Adjusted by Match",
-    "Raw": "Raw",
-    "Type": "Type",
-    "🏆 Top 5 Matches (by Raw Average)": "🏆 Top 5 Matches (by Raw Average)",
-    "💀 Bottom 5 Matches (by Raw Average)": "💀 Bottom 5 Matches (by Raw Average)",
-    "🏆 Top 5 Matches (by Adjusted Average)": "🏆 Top 5 Matches (by Adjusted Average)",
-    "All Matches": "All Matches",
-    "Result:": "Result:",
-    "Opponent:": "Opponent:",
-    "Showing": "Showing",
-    "matches": "matches",
-    "🎯 Match Detail": "🎯 Match Detail",
-    "No matches fit the filters.": "No matches fit the filters.",
-    "Select match:": "Select match:",
-    "This match has no leg data.": "This match has no leg data.",
-    "This match has **{n} legs**.": "This match has **{n} legs**.",
-    "Winner": "Winner",
-    "**{p}** — {n} turns": "**{p}** — {n} turns",
-    "Start": "Start",
-    "Throw": "Throw",
-    "Remaining": "Remaining",
-}
-
-
 def t(s):
-    return EN.get(s, s) if LANG == "EN" else s
+    """UI text hook. All text is English for now; a translation table can plug in here."""
+    return s
 
 
 st.title(t("🎯 DartCounter Analysis Dashboard"))
 
 
+@st.cache_data(ttl=60, show_spinner=False)
 def check_token():
+    """Return (ok, source, updated_at). Source: 'connected', 'config' or None."""
+    import dartcounter_api
+    stored, updated = dartcounter_api.connected_token_info()
+    if stored:
+        return True, "connected", updated
     try:
-        if "DARTCOUNTER_TOKEN" in st.secrets:
-            token = str(st.secrets["DARTCOUNTER_TOKEN"]).strip()
-            if token and len(token) > 20:
-                return True, "ok"
+        token = dartcounter_api.load_token()
+        if token and len(token) > 20:
+            return True, "config", None
     except Exception:
         pass
-
-    env_path = Path(ENV_FILE)
-    if not env_path.exists():
-        return False, "no_file"
-    try:
-        content = env_path.read_text()
-    except Exception:
-        return False, "read_error"
-    for line in content.splitlines():
-        line = line.strip()
-        if line.startswith("DARTCOUNTER_TOKEN="):
-            token = line.split("=", 1)[1].strip()
-            if token and len(token) > 20:
-                return True, "ok"
-            return False, "empty"
-    return False, "no_token"
+    return False, None, None
 
 
-def show_token_help():
-    st.error(t("⚠️ DartCounter token not found or invalid."))
-    st.markdown(t("### 🔑 How to get the token"))
+def connect_dartcounter_panel(token_ok, source, updated):
+    """Sidebar panel: paste a token, check it against DartCounter, store it encrypted."""
+    import dartcounter_api
+    title = t("🔗 Connect DartCounter") + (" ✅" if token_ok else "")
+    with st.expander(title, expanded=not token_ok):
+        if token_ok and source == "connected":
+            st.success(f"{t('Connected')} · {t('updated')} {updated}")
+        elif token_ok:
+            st.info(t("Using the token from the config file (.env / secrets). Connect here to replace it."))
+
+        if not dartcounter_api.encryption_ready():
+            st.warning(t("Add TOKEN_ENCRYPTION_KEY to secrets to store tokens from here. "
+                         "Generate one with: python -c \"from cryptography.fernet import Fernet; "
+                         "print(Fernet.generate_key().decode())\""))
+            return
+
+        with st.form("connect_dc", clear_on_submit=True):
+            token_in = st.text_input(t("DartCounter token"), type="password",
+                                     placeholder="12345678|AbCdEf...",
+                                     help=t("Paste the value after 'Bearer ' (see the steps below)."))
+            submitted = st.form_submit_button(t("Connect"), use_container_width=True, type="primary")
+        if submitted:
+            with st.spinner(t("Checking with DartCounter...")):
+                ok, msg, ident = dartcounter_api.validate_token(token_in)
+            if ok:
+                try:
+                    dartcounter_api.save_connected_token(token_in)
+                    dartcounter_api.save_connected_player(*ident)
+                    st.cache_data.clear()
+                    st.session_state["sync_now"] = True  # import their history right away
+                    st.success(t(msg))
+                    st.rerun()
+                except Exception as e:
+                    st.error(f"{t('Error')}: {e}")
+            else:
+                st.error(t(msg))
+
+        if source == "connected":
+            if st.button(t("Disconnect"), use_container_width=True):
+                dartcounter_api.disconnect_token()
+                st.cache_data.clear()
+                st.rerun()
+
+        with st.popover(t("🔑 How to get the token"), use_container_width=True):
+            show_token_steps()
+
+
+def show_token_steps():
     st.markdown(t("**1.** Log in to DartCounter in your browser: `https://app.dartcounter.net`"))
     st.markdown(t("**2.** Open any match page (Statistics → a match)"))
-    st.markdown(t("**3.** Open Developer Tools with `F12`"))
-    st.markdown(t("**4.** Click the **Network** tab"))
-    st.markdown(t("**5.** Select the **Fetch/XHR** filter"))
-    st.markdown(t("**6.** Refresh the page (Cmd+R)"))
-    st.markdown(t("**7.** Find a request containing `api.dartcounter.net`"))
-    st.markdown(t("**8.** Right-click → Copy → Copy as cURL"))
-    st.markdown(t("**9.** The part after `Bearer ` is your token"))
-    st.markdown(t("**10.** Put it in the `.env` file in the project folder: `DARTCOUNTER_TOKEN=37520203|AbCdEf...`"))
-    st.markdown(t("**11.** Save and refresh the page."))
-    st.info(t("💡 Once you have the token you can use it for a long time."))
+    st.markdown(t("**3.** Open Developer Tools with `F12` (Mac: `Cmd+Option+I`)"))
+    st.markdown(t("**4.** Click the **Network** tab and select the **Fetch/XHR** filter"))
+    st.markdown(t("**5.** Refresh the page"))
+    st.markdown(t("**6.** Click a request to `api.dartcounter.net` → **Headers**"))
+    st.markdown(t("**7.** Copy the `Authorization` value after `Bearer ` and paste it above"))
+    st.caption(t("Your DartCounter password is never needed. The token is stored encrypted."))
 
 
 @st.cache_data(ttl=300)
@@ -253,13 +173,31 @@ def clean_name(name):
     return re.sub(r'-[0-9a-f]{8}-[0-9a-f-]{20,}$', '', str(name))
 
 
-def run_script(script, args, timeout):
-    """Run a helper script, failing clearly if it is missing from the project."""
-    if not Path(script).exists():
-        st.error(f"{t('Error')}: `{script}` not found in the project folder.")
-        return None
-    return subprocess.run([sys.executable, script, *args],
-                          capture_output=True, text=True, timeout=timeout)
+def run_sync():
+    """Import the connected player's DartCounter history, with live progress."""
+    import dartcounter_api
+    import sync
+    with st.status(t("Syncing with DartCounter..."), expanded=True) as status:
+        try:
+            stats = sync.sync_all(dartcounter_api.load_token(), log=status.write)
+        except PermissionError as e:
+            status.update(label=t("Token rejected"), state="error")
+            st.error(t(str(e)))
+            return
+        except Exception as e:
+            status.update(label=t("Sync failed"), state="error")
+            st.error(f"{t('Error')}: {e}")
+            return
+        new = (stats["matches"] + stats["score"] + stats["atc"] + stats["singles"]
+               + stats.get("doubles", 0))
+        status.update(label=f"{t('Sync done')}: {new} {t('new games')}", state="complete", expanded=False)
+    st.success(f"{stats['matches']} {t('matches')} · {stats['score']} Score Training · "
+               f"{stats['atc']} Around the Clock · {stats['singles']} Singles · "
+               f"{stats.get('doubles', 0)} Doubles Training"
+               + (f" · {stats['errors']} {t('errors')}" if stats["errors"] else ""))
+    if new:
+        st.cache_data.clear()
+        st.rerun()
 
 
 def make_label(date, opponent, n=12):
@@ -366,37 +304,25 @@ with st.sidebar:
 
     st.divider()
 
-    token_ok, token_status = check_token()
-    if not token_ok:
-        with st.expander(t("🔑 How to get the token"), expanded=True):
-            show_token_help()
+    token_ok, token_source, token_updated = check_token()
+    if st.session_state.get("role") == "admin":
+        connect_dartcounter_panel(token_ok, token_source, token_updated)
         st.divider()
+    elif token_ok:
+        st.success(t("✅ DartCounter connected"))
     else:
-        st.success(t("✅ Token active"))
+        st.info(t("DartCounter is not connected yet. An admin can connect it from the sidebar."))
 
     if st.session_state.get("role") == "admin":
         st.header(t("⚙️ Actions"))
 
         if token_ok:
-            if st.button(t("🔄 FETCH NEW MATCHES"), use_container_width=True, type="primary"):
-                with st.spinner(f"{datetime.now().year} {t('matches are being fetched...')}"):
-                    try:
-                        result = run_script("list_all_matches.py", [str(datetime.now().year)], 900)
-                        if result is not None:
-                            st.code(result.stdout[-2500:] if result.stdout else t("(no output)"))
-                            if result.returncode == 0:
-                                st.success(t("✅ Update completed!"))
-                                refresh_cache()
-                                st.rerun()
-                            else:
-                                st.error(t("❌ An error occurred"))
-                                if result.stderr:
-                                    st.code(result.stderr[-1000:])
-                    except Exception as e:
-                        st.error(f"{t('Error')}: {e}")
+            st.caption(t("Imports every match and practice session from DartCounter. "
+                         "Already-stored games are skipped, so syncing again is quick."))
+            if st.button(t("🔄 Sync my DartCounter data"), use_container_width=True, type="primary") \
+                    or st.session_state.pop("sync_now", False):
+                run_sync()
             st.divider()
-
-        practice_tab.sidebar_button(token_ok, t)
 
         st.subheader(t("📥 Add Match by URL"))
         url_input = st.text_input(
@@ -410,97 +336,102 @@ with st.sidebar:
             elif url_input.strip():
                 with st.spinner(t("Downloading...")):
                     try:
-                        result = subprocess.run(
-                            [sys.executable, "dartcounter_api.py", url_input.strip()],
-                            capture_output=True, text=True, timeout=60
-                        )
-                        st.code(result.stdout or t("(no output)"))
-                        if result.returncode == 0 and "✅" in result.stdout:
+                        import dartcounter_api
+                        data = dartcounter_api.fetch_match(
+                            dartcounter_api.parse_match_id(url_input.strip()), dartcounter_api.load_token())
+                        dartcounter_api.setup_database()
+                        conn = None if dartcounter_api._turso_available() else dartcounter_api.get_db_connection()
+                        try:
+                            added = dartcounter_api.save_match(conn, data)
+                        finally:
+                            if conn is not None:
+                                conn.close()
+                        if added:
                             st.success(t("Match added!"))
                             refresh_cache()
                             st.rerun()
                         else:
-                            st.error(t("An error occurred"))
-                            if result.stderr:
-                                st.code(result.stderr[-1500:])
+                            st.info(t("This match is already stored (or has fewer than two players)."))
                     except Exception as e:
                         st.error(f"{t('Error')}: {e}")
             else:
                 st.warning(t("URL is empty."))
 
         st.divider()
-        st.subheader(t("🔄 Fetch a Specific Year"))
-        year = st.number_input(t("Year:"), min_value=2020, max_value=2030,
-                               value=datetime.now().year, step=1)
-        if st.button(t("Fetch This Year's Matches"), use_container_width=True):
-            if not token_ok:
-                st.error(t("A token is required first."))
-            else:
-                with st.spinner(f"{year} {t('matches are being fetched...')}"):
-                    try:
-                        result = run_script("list_all_matches.py", [str(year)], 900)
-                        if result is not None:
-                            st.code(result.stdout[-4000:] if result.stdout else t("(no output)"))
-                            if result.returncode == 0:
-                                st.success(t("Update completed!"))
-                                refresh_cache()
-                                st.rerun()
-                            else:
-                                st.error(t("Error"))
-                                if result.stderr:
-                                    st.code(result.stderr[-1500:])
-                    except Exception as e:
-                        st.error(f"{t('Error')}: {e}")
-
-        st.divider()
 
     st.caption(f"{t('Player')}: **{PLAYER}**")
-    st.caption(f"{t('Database')}: `{DB_PATH}`")
+    import dartcounter_api as _dc
+    st.caption(f"{t('Database')}: " + ("Turso" if _dc._turso_available() else f"`{DB_PATH}`"))
 # ============================================================
 
 
 matches, throws, legs = load_data()
 if matches.empty:
-    st.warning(t("No data yet. Press the 🔄 FETCH NEW MATCHES button in the sidebar."))
+    st.warning(t("No data yet. Connect your DartCounter account in the sidebar, then press 🔄 Sync my DartCounter data."))
     st.stop()
 
-efe_matches = matches[
-    (matches['player1_name'] == PLAYER) | (matches['player2_name'] == PLAYER)
-].copy()
+def is_p1(row):
+    # Match on DartCounter user id when known (survives name changes), else on name.
+    if PLAYER_ID is not None and pd.notna(row.get('p1_user_id')):
+        return int(row['p1_user_id']) == PLAYER_ID
+    return row['player1_name'] == PLAYER
+
+
+if PLAYER_ID is not None and {'p1_user_id', 'p2_user_id'}.issubset(matches.columns):
+    efe_matches = matches[(matches['p1_user_id'] == PLAYER_ID) | (matches['p2_user_id'] == PLAYER_ID)].copy()
+else:
+    efe_matches = matches[
+        (matches['player1_name'] == PLAYER) | (matches['player2_name'] == PLAYER)
+    ].copy()
 
 
 def get_efe_result(row):
-    return row['p1_result'] if row['player1_name'] == PLAYER else row['p2_result']
+    return row['p1_result'] if is_p1(row) else row['p2_result']
 
 
 def get_opponent(row):
-    return clean_name(row['player2_name'] if row['player1_name'] == PLAYER else row['player1_name'])
+    return clean_name(row['player2_name'] if is_p1(row) else row['player1_name'])
 
 
 def get_opponent_avg(row):
-    return row['p2_avg_3dart'] if row['player1_name'] == PLAYER else row['p1_avg_3dart']
+    return row['p2_avg_3dart'] if is_p1(row) else row['p1_avg_3dart']
 
 
 efe_matches['result'] = efe_matches.apply(get_efe_result, axis=1)
 efe_matches['opponent'] = efe_matches.apply(get_opponent, axis=1)
 efe_matches['opp_avg'] = efe_matches.apply(get_opponent_avg, axis=1)
 
-efe_throws = throws[throws['player_name'] == PLAYER].copy()
+if PLAYER_ID is not None and 'player_user_id' in throws.columns:
+    efe_throws = throws[throws['player_user_id'] == PLAYER_ID].copy()
+else:
+    efe_throws = throws[throws['player_name'] == PLAYER].copy()
 
-match_rows = []
-for match_id in efe_matches['match_id']:
-    mt = efe_throws[efe_throws['match_id'] == match_id]
-    adj_avg, adj_darts, num_dbl, num_fail, normal_avg = adjusted_stats(mt)
-    match_rows.append({
-        'match_id': match_id,
-        'calculated_avg': normal_avg,
-        'adjusted_avg': adj_avg,
-        'num_double_attempts': num_dbl,
-        'num_failed_doubles': num_fail,
-    })
+def per_match_stats(marked):
+    """Raw/adjusted average and double counts for every match in one pass."""
+    cols = ['match_id', 'calculated_avg', 'adjusted_avg', 'num_double_attempts', 'num_failed_doubles']
+    if marked.empty:
+        return pd.DataFrame(columns=cols)
+    df = marked.assign(
+        score=pd.to_numeric(marked['score_thrown'], errors='coerce').fillna(0),
+        darts=pd.to_numeric(marked['darts_thrown'], errors='coerce').fillna(0),
+        checked_out=pd.to_numeric(marked['remaining_after'], errors='coerce') == 0)
+    df['scoring'] = ~df['is_dbl']
+    df['adj_score'] = df['score'].where(df['scoring'], 0)
+    df['adj_darts'] = df['darts'].where(df['scoring'], 0)
+    df['failed'] = df['is_dbl'] & ~df['checked_out']
+    g = df.groupby('match_id').agg(score=('score', 'sum'), darts=('darts', 'sum'),
+                                   adj_score=('adj_score', 'sum'), adj_darts=('adj_darts', 'sum'),
+                                   num_double_attempts=('is_dbl', 'sum'),
+                                   num_failed_doubles=('failed', 'sum')).reset_index()
+    g['calculated_avg'] = (g['score'] / g['darts'].where(g['darts'] > 0) * 3).fillna(0)
+    # A match with no scoring turns falls back to the raw average (same as adjusted_stats).
+    g['adjusted_avg'] = (g['adj_score'] / g['adj_darts'].where(g['adj_darts'] > 0) * 3) \
+        .fillna(g['calculated_avg'])
+    return g[cols]
 
-match_stats_df = pd.DataFrame(match_rows)
-efe_matches = efe_matches.merge(match_stats_df, on='match_id', how='left')
+
+efe_marked = mark_double_attempts(efe_throws) if not efe_throws.empty else efe_throws
+efe_matches = efe_matches.merge(per_match_stats(efe_marked), on='match_id', how='left')
 efe_matches['avg'] = efe_matches['calculated_avg'].fillna(0).round(2)
 efe_matches['adjusted_avg'] = efe_matches['adjusted_avg'].fillna(0).round(2)
 efe_matches['opp_avg'] = efe_matches['opp_avg'].fillna(0).round(2)
@@ -511,12 +442,11 @@ losses = (efe_complete['result'] == 'lost').sum()
 total_matches = len(efe_complete)
 win_rate = (wins / total_matches * 100) if total_matches > 0 else 0
 
-total_score = efe_throws['score_thrown'].sum()
-total_darts = efe_throws['darts_thrown'].sum()
-overall_avg = (total_score / total_darts * 3) if total_darts > 0 else 0
-adj_avg_all, adj_darts_all, total_dbl, total_failed, _ = adjusted_stats(efe_throws)
-efe_180s = len(efe_throws[efe_throws['score_thrown'] == 180])
-efe_100s = len(efe_throws[efe_throws['score_thrown'] >= 100])
+# Headline numbers use the same finished matches as the match and win counts.
+complete_throws = efe_throws[efe_throws['match_id'].isin(efe_complete['match_id'])]
+adj_avg_all, adj_darts_all, total_dbl, total_failed, overall_avg = adjusted_stats(complete_throws)
+efe_180s = int((complete_throws['score_thrown'] == 180).sum())
+efe_100s = int((complete_throws['score_thrown'] >= 100).sum())
 
 RESULT_TXT = {'won': t('✅ Won'), 'lost': t('❌ Lost')}
 RESULT_ICON = {'won': '✅', 'lost': '❌'}
@@ -546,10 +476,9 @@ tab1, tab2, tab3, tab4, tab5, tab6, tab7, tab8 = st.tabs([
 ])
 
 with tab1:
-    practice_tab.render(PLAYER, DB_PATH, t)
+    practice_tab.render(PLAYER, DB_PATH, t, player_id=PLAYER_ID)
 
 C = ui_helpers.colors()
-efe_marked = mark_double_attempts(efe_throws) if not efe_throws.empty else efe_throws
 
 with tab2:
     st.subheader(t("Last 10 Matches"))
@@ -582,25 +511,12 @@ with tab3:
     efe_sorted = efe_complete.sort_values('date').copy()
     if not efe_sorted.empty:
         efe_sorted['when'] = pd.to_datetime(efe_sorted['date'], errors='coerce')
-        fig = go.Figure()
-        for col, label, color in (('avg', t('Raw average'), C['alt']),
-                                  ('adjusted_avg', t('Adjusted average'), C['you'])):
-            fig.add_trace(go.Scatter(
-                x=efe_sorted['when'], y=efe_sorted[col], mode='markers', name=label,
-                legendgroup=col, showlegend=False,
-                marker=dict(color=color, size=8, opacity=0.55),
-                customdata=list(zip(efe_sorted['opponent'], efe_sorted['result'].map(RESULT_ICON))),
-                hovertemplate="%{x|%d.%m %H:%M} vs %{customdata[0]} %{customdata[1]}<br>"
-                              + label + ": %{y:.2f}<extra></extra>"))
-            fig.add_trace(go.Scatter(
-                x=efe_sorted['when'], y=ui_helpers.rolling_trend(efe_sorted['when'], efe_sorted[col]),
-                mode='lines', name=label, legendgroup=col,
-                line=dict(color=color, width=2.5),
-                hovertemplate=label + " (" + t("5-match avg") + "): %{y:.2f}<extra></extra>"))
-        fig.update_layout(title=f"{PLAYER} — {t('Raw vs Adjusted Average')}",
-                          yaxis_title=t('3-dart average'), hovermode='closest')
-        ui_helpers.chart(fig, key="progress_avg", height=380)
-        st.caption(t("Dots = single matches · lines = 5-match rolling average. "
+        ui_helpers.daily_trend(
+            efe_sorted, 'when',
+            [('adjusted_avg', t('Adjusted average'), 'you'), ('avg', t('Raw average'), 'alt')],
+            f"{PLAYER} — {t('Raw vs Adjusted Average per Match Day')}",
+            y_title=t('3-dart average'), unit=t("matches"), key="progress_avg", height=380, decimals=2)
+        st.caption(t("Each dot is the average of that day's matches. "
                      "Adjusted leaves out double-zone turns."))
 
     st.subheader(t("Average Performance by Turn"))
@@ -662,13 +578,15 @@ with tab5:
     st.subheader(t("🎯 Double Attempt Analysis"))
     st.caption(t("Double attempt: Once remaining score first drops to ≤ 40 in a leg, all subsequent turns in that leg count as double attempts."))
     col1, col2, col3 = st.columns(3)
-    col1.metric(t("Total Double Attempts"), int(total_dbl))
-    col2.metric(t("Failed Doubles"), int(total_failed))
+    col1.metric(t("Double-zone turns"), int(total_dbl),
+                help=t("Turns from the moment the remaining score first reaches 40 or less (or 50)."))
+    col2.metric(t("Turns without a checkout"), int(total_failed))
     success_rate = ((total_dbl - total_failed) / total_dbl * 100) if total_dbl > 0 else 0
-    col3.metric(t("Double Success %"), ui_helpers.pct(success_rate),
-                help=t("Double-zone turns that ended in a checkout."))
+    col3.metric(t("Checkout rate per turn"), ui_helpers.pct(success_rate),
+                help=t("Double-zone turns (up to 3 darts) that ended in a checkout. "
+                       "The heatmap below counts single darts, so its hit rate is lower."))
 
-    doubles_section.render(efe_throws, PLAYER, t)
+    doubles_section.render(efe_throws, PLAYER, t, player_id=PLAYER_ID)
     st.divider()
 
     st.subheader(t("Double Attempts by Match"))
@@ -756,8 +674,13 @@ with tab7:
                 st.markdown(f"### Leg {leg_no} — {t('Winner')}: **{winner}**")
                 leg_throws = throws[throws['leg_id'] == leg_id].copy()
                 leg_throws = leg_throws.sort_values(['player_name', 'turn'])
-                players_in_leg = [PLAYER] + [
-                    p for p in leg_throws['player_name'].unique() if p != PLAYER][:2]
+                me = PLAYER
+                if PLAYER_ID is not None and 'player_user_id' in leg_throws.columns:
+                    mine = leg_throws.loc[leg_throws['player_user_id'] == PLAYER_ID, 'player_name'].unique()
+                    if len(mine):
+                        me = mine[0]
+                players_in_leg = [me] + [
+                    p for p in leg_throws['player_name'].unique() if p != me][:2]
 
                 # Leg replay: remaining score after each turn, both players.
                 replay = go.Figure()
@@ -766,7 +689,7 @@ with tab7:
                     if pt.empty:
                         continue
                     start = pt['remaining_before'].iloc[0]
-                    is_me = player == PLAYER
+                    is_me = player == me
                     replay.add_trace(go.Scatter(
                         x=[0] + pt['turn'].tolist(), y=[start] + pt['remaining_after'].tolist(),
                         mode='lines+markers', name=clean_name(player),
@@ -807,4 +730,4 @@ with tab7:
                     st.dataframe(p_display, use_container_width=True, hide_index=True)
 
 with tab8:
-    coaching_page.render_coaching_page(PLAYER, t)
+    coaching_page.render_coaching_page(PLAYER, t, player_id=PLAYER_ID)

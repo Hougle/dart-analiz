@@ -127,7 +127,7 @@ def metric_grid(metrics, cols=7, key=None):
         col.metric(**kwargs)
 
 
-def chart(fig, key=None, height=340):
+def chart(fig, key=None, height=340, margin=None):
     """Render a Plotly figure with the shared, theme-aware styling."""
     c = colors()
     fig.update_layout(
@@ -135,7 +135,7 @@ def chart(fig, key=None, height=340):
         height=height,
         paper_bgcolor="rgba(0,0,0,0)",
         plot_bgcolor="rgba(0,0,0,0)",
-        margin=dict(t=56, b=40, l=48, r=20),
+        margin=margin or dict(t=56, b=40, l=48, r=20),
         title=dict(font=dict(size=15)),
         legend=dict(orientation="h", yanchor="bottom", y=1.02,
                     xanchor="right", x=1, font=dict(size=11), title_text=""),
@@ -150,9 +150,58 @@ def chart(fig, key=None, height=340):
     st.plotly_chart(fig, **kwargs)
 
 
-def rolling_trend(x, y, window=5):
-    """Centred-free trailing average, ignoring gaps; used for trend lines."""
-    return pd.Series(y).rolling(window, min_periods=1).mean().values
+def daily_trend(df, when, series, title, y_title="", suffix="", unit="sessions",
+                key=None, height=340, decimals=1, show_range=True, show_mean=True, margin=None):
+    """Readable trend chart: one point per day instead of a cloud of same-day dots.
+
+    df:     one row per session / match, with a datetime column `when`.
+    series: list of (column, label, colour role) — e.g. [("avg_3dart", "3-dart avg", "you")].
+    Each day shows the day's mean, joined by a straight line. With a single series,
+    a thin bar marks the day's lowest and highest session, the dashed line is the
+    overall mean and the latest day is labelled.
+    """
+    c = colors()
+    d = df.dropna(subset=[when]).copy()
+    if d.empty:
+        st.info("No dated data for this chart yet.")
+        return
+    d["day"] = pd.to_datetime(d[when]).dt.tz_localize(None).dt.normalize() + pd.Timedelta(hours=12)
+    single = len(series) == 1
+    fmt = f"%{{y:.{decimals}f}}{suffix}"
+    fig = go.Figure()
+    for col, label, role in series:
+        vals = pd.to_numeric(d[col], errors="coerce")
+        g = vals.groupby(d["day"]).agg(["mean", "min", "max", "count"]).dropna().reset_index()
+        if g.empty:
+            continue
+        color = c[role]
+        rng = show_range and single
+        custom = list(zip(g["count"], g["min"].round(decimals), g["max"].round(decimals)))
+        hover = ("%{x|%a %d %b}<br><b>" + label + ": " + fmt + "</b><br>%{customdata[0]} " + unit
+                 + (f"<br>range %{{customdata[1]}}{suffix} – %{{customdata[2]}}{suffix}" if rng else "")
+                 + "<extra></extra>")
+        fig.add_trace(go.Scatter(
+            x=g["day"], y=g["mean"], mode="lines+markers", name=label, customdata=custom,
+            line=dict(color=color, width=2.5),
+            marker=dict(color=color, size=10),
+            error_y=dict(type="data", symmetric=False, array=g["max"] - g["mean"],
+                         arrayminus=g["mean"] - g["min"], color=c["neutral"], thickness=1.5, width=6)
+            if rng else None,
+            hovertemplate=hover))
+        if single:
+            last = g.iloc[-1]
+            fig.add_annotation(x=last["day"], y=last["mean"], text=f"<b>{last['mean']:.{decimals}f}{suffix}</b>",
+                               showarrow=False, xanchor="left", xshift=10, font=dict(color=c["text"], size=13))
+            if show_mean:
+                overall = vals.mean()
+                fig.add_hline(y=overall, line=dict(color=c["muted"], width=1, dash="dot"),
+                              annotation_text=f"overall {overall:.{decimals}f}{suffix}",
+                              annotation_position="top left", annotation_font=dict(color=c["muted"], size=11))
+    fig.update_layout(title=title, showlegend=not single, hovermode="closest",
+                      yaxis=dict(title=y_title, ticksuffix=suffix),
+                      xaxis=dict(title="", tickformat="%d %b", hoverformat="%d %b"))
+    # Room on the right for the latest-value label.
+    chart(fig, key=key, height=height, margin=margin or dict(t=56, b=40, l=48, r=56 if single else 20))
 
 
 def dartboard_ring(stats, title, prefix="", value_label="Hit rate", key=None, min_n=5):
@@ -238,6 +287,8 @@ def segment_bars(stats, title, prefix="", value_label="Hit rate", key=None, min_
         st.info("No data for this chart yet.")
         return
     df = stats.copy()
+    df["value"] = pd.to_numeric(df["value"], errors="coerce")
+    df["attempts"] = pd.to_numeric(df["attempts"], errors="coerce").fillna(0)
     df["order"] = df["target"].apply(lambda t: 21 if t == 25 else t)
     df = df.sort_values("order")
     df["label"] = df["target"].apply(lambda t: f"{prefix}{'Bull' if t == 25 else t}")

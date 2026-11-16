@@ -3,24 +3,9 @@ Coaching & Advanced Analytics Dashboard
 """
 import streamlit as st
 import pandas as pd
-import sqlite3
-import plotly.graph_objects as go
 import ui_helpers
-from dartcounter_api import DB_PATH, _turso_available, turso_query
-from practice_tab import calculate_score_metrics
-
-def get_practice_turns_df():
-    if _turso_available():
-        cols, rows = turso_query("SELECT * FROM practice_turns")
-        return pd.DataFrame(rows, columns=cols) if rows and cols else pd.DataFrame()
-    else:
-        try:
-            conn = sqlite3.connect(DB_PATH)
-            df = pd.read_sql("SELECT * FROM practice_turns", conn)
-            conn.close()
-            return df
-        except Exception:
-            return pd.DataFrame()
+from practice_tab import calculate_score_metrics, load_all_practice_data
+from dartcounter_api import only_player
 
 def calculate_advanced_metrics(df_turns, df_sessions):
     if df_turns.empty:
@@ -45,24 +30,18 @@ def calculate_advanced_metrics(df_turns, df_sessions):
 
     return consistency_index, bounce_back_rate, decay_pct, overall_avg
 
-def render_coaching_page(player_name, t_func):
-    st.title("🧠 Professional Coaching & Performance Analytics")
+def render_coaching_page(player_name, t_func, player_id=None):
+    st.subheader("🧠 Professional Coaching & Performance Analytics")
     st.markdown(f"**Player:** {player_name} | This panel deeply analyzes your game rhythm, mental recovery speed, and fatigue thresholds.")
     st.markdown("---")
 
-    # Data Fetching
-    if _turso_available():
-        cols, sessions = turso_query("SELECT * FROM practice_sessions ORDER BY started_at ASC")
-        df_sessions = pd.DataFrame(sessions, columns=cols) if sessions else pd.DataFrame()
-    else:
-        try:
-            conn = sqlite3.connect(DB_PATH)
-            df_sessions = pd.read_sql("SELECT * FROM practice_sessions ORDER BY started_at ASC", conn)
-            conn.close()
-        except Exception:
-            df_sessions = pd.DataFrame()
-
-    df_turns = get_practice_turns_df()
+    # Data: same cached loader as the Practice tab, limited to the connected player
+    df_sessions, df_turns, _, _ = load_all_practice_data()
+    df_sessions = only_player(df_sessions, player_id, player_name)
+    if not df_turns.empty and {"session_id", "user_id"}.issubset(df_turns.columns) \
+            and {"session_id", "user_id"}.issubset(df_sessions.columns):
+        keys = df_sessions[["session_id", "user_id"]].drop_duplicates()
+        df_turns = df_turns.merge(keys, on=["session_id", "user_id"], how="inner")
 
     if df_sessions.empty or df_turns.empty:
         st.warning("Not enough practice data to generate coaching analysis. Try doing some Score Training first!")
@@ -111,7 +90,7 @@ def render_coaching_page(player_name, t_func):
     st.markdown("---")
 
     # Trends: one small chart per measure (different scales never share an axis)
-    st.subheader("📈 Are you improving? Per-session trends")
+    st.subheader("📈 Are you improving? Trends per practice day")
     turns = df_turns.copy()
     turns["score"] = pd.to_numeric(turns["score"], errors="coerce")
     if "session_id" not in turns.columns or "session_id" not in df_sessions.columns:
@@ -130,37 +109,22 @@ def render_coaching_page(player_name, t_func):
     sess["when"] = pd.to_datetime(sess["started_at"], unit="s", utc=True).dt.tz_convert("Europe/Istanbul")
     sess = sess.sort_values("when")
 
-    # Recovery is too noisy per 10-turn session, so it is pooled over the last 5 sessions.
-    recov = []
-    sids = sess["session_id"].tolist()
-    for i in range(len(sids)):
-        window = turns[turns["session_id"].isin(sids[max(0, i - 4): i + 1])]
-        recov.append(calculate_score_metrics(window)[1])
-    sess["recovery"] = recov
+    # Recovery is too noisy per 10-turn session, so it is pooled over all turns of the day.
+    sess["day"] = sess["when"].dt.date
+    day_of = dict(zip(sess["session_id"], sess["day"]))
+    pooled = {day: calculate_score_metrics(turns[turns["session_id"].map(day_of) == day])[1]
+              for day in sess["day"].unique()}
+    sess["recovery"] = sess["day"].map(pooled)
 
-    C = ui_helpers.colors()
     panels = [
-        ("avg", "Turn average", "", "{:.1f}"),
-        ("consistency", "Consistency index", "%", "{:.0f}%"),
-        ("recovery", "Recovery rate (last 5 sessions)", "%", "{:.0f}%"),
+        ("avg", "Turn average", "", 1, True),
+        ("consistency", "Consistency index", "%", 0, True),
+        ("recovery", "Recovery rate", "%", 0, False),
     ]
-    cols = st.columns(3)
-    for (col, title, suffix, fmt), slot in zip(panels, cols):
-        with slot:
-            fig = go.Figure()
-            if col != "recovery":
-                fig.add_trace(go.Scatter(x=sess["when"], y=sess[col], mode="markers",
-                                         marker=dict(color=C["alt"], size=7, opacity=0.55), showlegend=False,
-                                         hovertemplate="%{x|%d.%m %H:%M}: %{y:.1f}" + suffix + "<extra></extra>"))
-                trend = ui_helpers.rolling_trend(sess["when"], sess[col])
-            else:
-                trend = sess[col].to_numpy()
-            fig.add_trace(go.Scatter(x=sess["when"], y=trend, mode="lines", showlegend=False,
-                                     line=dict(color=C["you"], width=2.5),
-                                     hovertemplate="%{x|%d.%m}: %{y:.1f}" + suffix + "<extra></extra>"))
-            last = trend[-1] if len(trend) else None
-            fig.update_layout(title=f"{title}<br><sup>latest: {fmt.format(last) if last is not None else '–'}</sup>",
-                              yaxis=dict(ticksuffix=suffix), xaxis=dict(tickformat="%d.%m"),
-                              margin=dict(t=64, b=30, l=40, r=10))
-            ui_helpers.chart(fig, key=f"coach_{col}", height=260)
-    st.caption("Dots = single sessions · orange line = 5-session rolling average.")
+    # Stacked full-width (not 3 columns) so dates and labels stay legible; same x range for all.
+    for col, title, suffix, dec, rng in panels:
+        ui_helpers.daily_trend(sess, "when", [(col, title, "you")], title, suffix=suffix,
+                               key=f"coach_{col}", height=240, decimals=dec, show_range=rng,
+                               margin=dict(t=40, b=30, l=48, r=56))
+    st.caption("Dot = the day's value · bar = that day's lowest to highest session · "
+               "dotted line = overall average. Recovery is pooled over all turns of the day.")

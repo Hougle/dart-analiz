@@ -178,7 +178,138 @@ def to_date_str(timestamp):
 # DARtCounter API
 # ============================================================================
 
+# ----------------------------------------------------------------------------
+# Connect DartCounter: token stored encrypted in the database
+# ----------------------------------------------------------------------------
+# The token is encrypted with TOKEN_ENCRYPTION_KEY (a Fernet key kept in
+# st.secrets or .env) so a leaked database does not leak a usable token.
+
+def _secret(name):
+    try:
+        import streamlit as st
+        if name in st.secrets:
+            return str(st.secrets[name]).strip()
+    except Exception:
+        pass
+    env_path = Path(ENV_FILE)
+    if env_path.exists():
+        for line in env_path.read_text().splitlines():
+            line = line.strip()
+            if line.startswith(f"{name}="):
+                return line.split("=", 1)[1].strip().strip('"').strip("'")
+    return None
+
+
+def _fernet():
+    key = _secret("TOKEN_ENCRYPTION_KEY")
+    if not key:
+        return None
+    from cryptography.fernet import Fernet
+    return Fernet(key.encode())
+
+
+def encryption_ready():
+    try:
+        return _fernet() is not None
+    except Exception:
+        return False
+
+
+def _settings_sql(sql, args=None):
+    """Run SQL against the app_settings table on Turso or local SQLite."""
+    create = ("CREATE TABLE IF NOT EXISTS app_settings "
+              "(key TEXT PRIMARY KEY, value TEXT, updated_at TEXT)")
+    if _turso_available():
+        turso_execute(create)
+        return turso_query(sql, args)
+    conn = sqlite3.connect(DB_PATH)
+    try:
+        conn.execute(create)
+        cur = conn.execute(sql, args or [])
+        rows = cur.fetchall()
+        conn.commit()
+        return [d[0] for d in (cur.description or [])], rows
+    finally:
+        conn.close()
+
+
+def validate_token(token):
+    """Check a token against the DartCounter API and find out whose it is.
+
+    Returns (ok, message, (user_id, player_name) or None).
+    """
+    token = (token or "").strip().removeprefix("Bearer ").strip()
+    if len(token) <= 20 or "|" not in token:
+        return False, "That doesn't look like a DartCounter token (expected something like 12345678|AbCd...).", None
+    from sync import detect_player  # local import: sync imports this module
+    try:
+        uid, name = detect_player(token)
+        return True, f"Connected as {name or uid}.", (uid, name)
+    except PermissionError:
+        return False, "DartCounter rejected this token (401). Copy a fresh one.", None
+    except LookupError:
+        return False, "The token works, but this DartCounter account has no games yet. Play one and try again.", None
+    except Exception as e:
+        return False, f"Could not reach DartCounter to check the token: {e}", None
+
+
+def save_connected_player(user_id, player_name):
+    now = datetime.now().strftime("%Y-%m-%d %H:%M")
+    for key, val in (("player_user_id", str(user_id)), ("player_name", player_name or "")):
+        _settings_sql("INSERT OR REPLACE INTO app_settings (key, value, updated_at) VALUES (?, ?, ?)",
+                      [key, val, now])
+
+
+def connected_player():
+    """(user_id, player_name) of the connected DartCounter account, or (None, None)."""
+    try:
+        _, rows = _settings_sql("SELECT key, value FROM app_settings WHERE key IN (?, ?)",
+                                ["player_user_id", "player_name"])
+        d = {k: v for k, v in rows}
+        uid = int(d["player_user_id"]) if d.get("player_user_id") else None
+        return uid, (d.get("player_name") or None)
+    except Exception:
+        return None, None
+
+
+def save_connected_token(token):
+    """Encrypt and store the token. Raises if no encryption key is configured."""
+    f = _fernet()
+    if f is None:
+        raise RuntimeError("TOKEN_ENCRYPTION_KEY is not set in secrets, so the token can't be stored safely.")
+    token = token.strip().removeprefix("Bearer ").strip()
+    enc = f.encrypt(token.encode()).decode()
+    now = datetime.now().strftime("%Y-%m-%d %H:%M")
+    _settings_sql("INSERT OR REPLACE INTO app_settings (key, value, updated_at) VALUES (?, ?, ?)",
+                  ["dartcounter_token", enc, now])
+
+
+def disconnect_token():
+    _settings_sql("DELETE FROM app_settings WHERE key IN (?, ?, ?)",
+                  ["dartcounter_token", "player_user_id", "player_name"])
+
+
+def connected_token_info():
+    """Return (token or None, updated_at or None) for the token saved via Connect."""
+    try:
+        _, rows = _settings_sql("SELECT value, updated_at FROM app_settings WHERE key = ?",
+                                ["dartcounter_token"])
+        if not rows:
+            return None, None
+        f = _fernet()
+        if f is None:
+            return None, rows[0][1]
+        return f.decrypt(rows[0][0].encode()).decode(), rows[0][1]
+    except Exception:
+        return None, None
+
+
 def load_token():
+    # 1) Token connected from the app (encrypted in the database)
+    stored, _ = connected_token_info()
+    if stored:
+        return stored
+    # 2) st.secrets / 3) .env
     try:
         import streamlit as st
         if "DARTCOUNTER_TOKEN" in st.secrets:
@@ -541,6 +672,18 @@ def main():
     if conn is not None:
         conn.close()
     print("✅ Bitti.")
+
+
+def only_player(df, user_id=None, player_name=None, id_col="user_id"):
+    """Keep only the connected player's rows (practice tables also hold opponents and CPUs)."""
+    if df is None or df.empty:
+        return df
+    import pandas as pd
+    if user_id is not None and id_col in df.columns:
+        return df[pd.to_numeric(df[id_col], errors="coerce") == user_id]
+    if player_name and "player_name" in df.columns:
+        return df[df["player_name"] == player_name]
+    return df
 
 
 if __name__ == "__main__":

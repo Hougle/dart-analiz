@@ -3,24 +3,27 @@ Singles Training Analysis Module
 """
 import streamlit as st
 import pandas as pd
-import sqlite3
 import plotly.graph_objects as go
 import ui_helpers
-from dartcounter_api import DB_PATH, _turso_available, turso_query
+from dartcounter_api import only_player
 
-def render_singles_tab():
+
+@st.cache_data(ttl=60)
+def _load_singles():
+    from practice_tab import read_table  # local import: practice_tab imports this module
+    return (read_table("SELECT * FROM singles_sessions ORDER BY started_at ASC"),
+            read_table("SELECT * FROM singles_targets"))
+
+def render_singles_tab(player_id=None, player_name=None):
     st.subheader("🎯 Singles Training Analysis")
 
-    if _turso_available():
-        s_cols, sessions = turso_query("SELECT * FROM singles_sessions ORDER BY started_at ASC")
-        t_cols, targets = turso_query("SELECT * FROM singles_targets")
-        df_sessions = pd.DataFrame(sessions, columns=s_cols) if sessions else pd.DataFrame()
-        df_targets = pd.DataFrame(targets, columns=t_cols) if targets else pd.DataFrame()
-    else:
-        conn = sqlite3.connect(DB_PATH)
-        df_sessions = pd.read_sql("SELECT * FROM singles_sessions ORDER BY started_at ASC", conn)
-        df_targets = pd.read_sql("SELECT * FROM singles_targets", conn)
-        conn.close()
+    df_sessions, df_targets = _load_singles()
+
+    # Only the connected player's sessions, and the targets that belong to them.
+    df_sessions = only_player(df_sessions, player_id, player_name).copy()
+    if not df_targets.empty and "singles_user_id" in df_targets.columns \
+            and "singles_user_id" in df_sessions.columns:
+        df_targets = df_targets[df_targets["singles_user_id"].isin(df_sessions["singles_user_id"])]
 
     if df_sessions.empty:
         st.info("No recorded Singles Training sessions found yet.")
@@ -74,15 +77,11 @@ def render_singles_tab():
 
     # Hit Rate per session on a real time axis
     if "datetime" in df_sessions.columns and df_sessions["datetime"].notna().any():
-        sess = df_sessions.sort_values("datetime")
-        fig = go.Figure()
-        fig.add_trace(go.Scatter(
-            x=sess["datetime"], y=sess["hit_rate"], mode="markers+lines", name="Session",
-            line=dict(color=C["alt"], width=2), marker=dict(color=C["alt"], size=9),
-            hovertemplate="%{x|%d.%m %H:%M}<br>Hit rate: %{y:.1f}%<extra></extra>"))
-        fig.update_layout(title="Hit Rate per Session", yaxis=dict(title="Hit rate (%)", ticksuffix="%"),
-                          xaxis_title="", showlegend=False)
-        ui_helpers.chart(fig, key="singles_trend", height=300)
+        ui_helpers.daily_trend(df_sessions, "datetime", [("hit_rate", "Hit rate", "you")],
+                               "Hit Rate per Practice Day", y_title="Hit rate", suffix="%",
+                               key="singles_trend", height=320)
+        st.caption("Dot = the day's average · bar = that day's lowest to highest session · "
+                   "dotted line = overall average.")
 
     st.markdown("### 📋 Past Singles Sessions")
     

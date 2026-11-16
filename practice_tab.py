@@ -3,40 +3,12 @@ Practice Module - Analyst & Athlete-Centric Performance Analyzer
 Score Training & ATC Bottleneck Analytics
 """
 import streamlit as st
-import subprocess
-import sys
-from pathlib import Path
 import pandas as pd
 import sqlite3
-import plotly.express as px
 import plotly.graph_objects as go
 import ui_helpers
 from singles_tab import render_singles_tab
-from dartcounter_api import DB_PATH, _turso_available, turso_query
-
-
-def sidebar_button(token_ok, t_func):
-    if token_ok:
-        if st.button(t_func("🎯 FETCH PRACTICE"), use_container_width=True):
-            if not Path("practice_import.py").exists():
-                st.error("Error: `practice_import.py` not found in the project folder.")
-                return
-            with st.spinner(t_func("Fetching practice data...")):
-                try:
-                    result = subprocess.run(
-                        [sys.executable, "practice_import.py"],
-                        capture_output=True, text=True, timeout=60
-                    )
-                    if result.returncode == 0:
-                        st.success(t_func("✅ Update completed!"))
-                        st.cache_data.clear()
-                        st.rerun()
-                    else:
-                        st.error(t_func("❌ An error occurred"))
-                        if result.stderr:
-                            st.code(result.stderr[-1500:])
-                except Exception as e:
-                    st.error(f"Error: {e}")
+from dartcounter_api import DB_PATH, _turso_available, turso_query, only_player
 
 
 def read_table(sql):
@@ -106,7 +78,7 @@ def calculate_score_metrics(df_turns):
     return std_dev, bounce_back_rate, decay_pct
 
 
-def render(player_name, db_path, t_func):
+def render(player_name, db_path, t_func, player_id=None):
     st.subheader(t_func("🎯 Practice Modules"))
     
     sub1, sub2, sub3 = st.tabs([
@@ -116,6 +88,14 @@ def render(player_name, db_path, t_func):
     ])
     
     df_p_sessions, df_p_turns, df_a_sessions, df_a_targets = load_all_practice_data()
+
+    # Only the connected player's own sessions (versus games also store opponents).
+    df_p_sessions = only_player(df_p_sessions, player_id, player_name)
+    if not df_p_turns.empty and {"session_id", "user_id"}.issubset(df_p_turns.columns) \
+            and {"session_id", "user_id"}.issubset(df_p_sessions.columns):
+        keys = df_p_sessions[["session_id", "user_id"]].drop_duplicates()
+        df_p_turns = df_p_turns.merge(keys, on=["session_id", "user_id"], how="inner")
+    df_a_sessions = only_player(df_a_sessions, player_id, player_name)
     
     # ==========================================
     # 1. SCORE TRAINING TAB
@@ -139,34 +119,24 @@ def render(player_name, db_path, t_func):
             C = ui_helpers.colors()
             col1, col2, col3 = st.columns(3)
             col1.metric("📊 Rhythm Fluctuation (Std Dev)",
-                        f"±{std_dev:.1f} pts" if std_dev is not None else "No Data",
+                        f"±{std_dev:.1f} pts" if pd.notna(std_dev) else "No Data",
                         help="Standard deviation of turn scores. Lower = steadier; under 25 is stable.")
             col2.metric("🧠 Bounce-Back Rate",
-                        ui_helpers.pct(bounce_back) if bounce_back is not None else "No Data",
+                        ui_helpers.pct(bounce_back) if pd.notna(bounce_back) else "No Data",
                         help="After a turn of 40 or less, how often the next turn (same session) "
                              "reaches your average turn score.")
             col3.metric("⚡ Fatigue Curve (Decay)",
-                        f"{decay:+.1f}%" if decay is not None else "No Data",
+                        f"{decay:+.1f}%" if pd.notna(decay) else "No Data",
                         help="Last 3 turns vs first 3 turns of each session. Negative = you drop off late.")
 
             st.markdown("---")
 
-            # Each session as a dot on a real time axis, plus a rolling trend line.
             if "datetime" in df.columns:
-                sess = df.dropna(subset=["avg_3dart"]).sort_values("datetime")
-                fig_trend = go.Figure()
-                fig_trend.add_trace(go.Scatter(
-                    x=sess["datetime"], y=sess["avg_3dart"], mode="markers", name="Session",
-                    marker=dict(color=C["alt"], size=8, opacity=0.6),
-                    hovertemplate="%{x|%d.%m %H:%M}<br>3-dart avg: %{y:.1f}<extra></extra>"))
-                fig_trend.add_trace(go.Scatter(
-                    x=sess["datetime"], y=ui_helpers.rolling_trend(sess["datetime"], sess["avg_3dart"]),
-                    mode="lines", name="5-session average",
-                    line=dict(color=C["you"], width=2.5),
-                    hovertemplate="5-session avg: %{y:.1f}<extra></extra>"))
-                fig_trend.update_layout(title="📈 3-Dart Average per Session",
-                                        yaxis_title="3-dart average", xaxis_title="")
-                ui_helpers.chart(fig_trend, key="score_trend")
+                ui_helpers.daily_trend(df, "datetime", [("avg_3dart", "3-dart avg", "you")],
+                                       "📈 3-Dart Average per Practice Day", y_title="3-dart average",
+                                       key="score_trend")
+                st.caption("Dot = the day's average · bar = that day's lowest to highest session · "
+                           "dotted line = overall average.")
 
             st.markdown("---")
 
@@ -202,9 +172,7 @@ def render(player_name, db_path, t_func):
             st.info("No recorded Around the Clock sessions found yet.")
         else:
             df_a = df_a_sessions.copy()
-            # Leave out DartBot / opponent sessions so stats are only the player's own.
-            if "player_name" in df_a.columns:
-                df_a = df_a[df_a["player_name"] == player_name]
+            # Leave out DartBot sessions (already limited to the connected player above).
             if "is_cpu" in df_a.columns:
                 df_a = df_a[df_a["is_cpu"].fillna(0).astype(int) == 0]
             if "started_at" in df_a.columns and df_a["started_at"].notna().any():
@@ -275,22 +243,12 @@ def render(player_name, db_path, t_func):
                 st.markdown("---")
 
                 if "datetime" in df_a_filtered.columns and "hit_rate" in df_a_filtered.columns:
-                    sess = df_a_filtered.sort_values("datetime")
-                    fig_hit = go.Figure()
-                    fig_hit.add_trace(go.Scatter(
-                        x=sess["datetime"], y=sess["hit_rate"], mode="markers", name="Session",
-                        marker=dict(color=C["alt"], size=9, opacity=0.65),
-                        customdata=sess[mode_col] if mode_col else None,
-                        hovertemplate="%{x|%d.%m %H:%M}<br>Hit rate: %{y:.1f}%"
-                                      + ("<br>Mode: %{customdata}" if mode_col else "") + "<extra></extra>"))
-                    fig_hit.add_trace(go.Scatter(
-                        x=sess["datetime"], y=ui_helpers.rolling_trend(sess["datetime"], sess["hit_rate"]),
-                        mode="lines", name="5-session average",
-                        line=dict(color=C["you"], width=2.5),
-                        hovertemplate="5-session avg: %{y:.1f}%<extra></extra>"))
-                    fig_hit.update_layout(title=f"📈 Hit Rate per Session ({mode_labels.get(selected_mode, selected_mode)})",
-                                          yaxis=dict(title="Hit rate (%)", ticksuffix="%"), xaxis_title="")
-                    ui_helpers.chart(fig_hit, key=f"atc_trend_{selected_mode}")
+                    ui_helpers.daily_trend(
+                        df_a_filtered, "datetime", [("hit_rate", "Hit rate", "you")],
+                        f"📈 Hit Rate per Practice Day ({mode_labels.get(selected_mode, selected_mode)})",
+                        y_title="Hit rate", suffix="%", key=f"atc_trend_{selected_mode}")
+                    st.caption("Dot = the day's average · bar = that day's lowest to highest session · "
+                               "dotted line = overall average.")
 
                 st.markdown("---")
 
@@ -304,4 +262,4 @@ def render(player_name, db_path, t_func):
     # 3. SINGLES TRAINING TAB
     # ==========================================
     with sub3:
-        render_singles_tab()
+        render_singles_tab(player_id=player_id, player_name=player_name)

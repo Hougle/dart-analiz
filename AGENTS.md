@@ -4,7 +4,7 @@ Guidance for AI coding agents working in this repository.
 
 ## Project
 
-**DartAnaliz** is a Streamlit dashboard that analyzes one player's darts matches and practice sessions from DartCounter. The tracked player is set by `PLAYER = "Efe"` in `app.py`. All filtering uses an exact match on `player_name`.
+**DartAnaliz** is a Streamlit dashboard that analyzes one player's darts matches and practice sessions from DartCounter. One deployment shows one player: whoever connected their DartCounter account (`PLAYER_ID` / `PLAYER` in `app.py`, read from `app_settings`; `DEFAULT_PLAYER = "Efe"` until someone connects). Filter by DartCounter user id when known, falling back to `player_name` (`dartcounter_api.only_player`).
 
 ## Running
 
@@ -26,26 +26,27 @@ python -m py_compile *.py
 |---|---|
 | `app.py` | Entry point: auth, sidebar actions, data loading, the 8 main tabs |
 | `dartcounter_api.py` | DartCounter API client, Turso HTTP client (`turso_query`, `turso_execute`), schema setup, match import. Also a CLI: `python dartcounter_api.py <match URL or ID>` |
-| `practice_tab.py` | Practice tab (Score Training, Around the Clock, Singles) and the "FETCH PRACTICE" sidebar button |
+| `sync.py` | Imports the connected player's whole DartCounter history (matches, Score Training, Around the Clock, Singles, Doubles Training), skipping what's stored. `detect_player(token)` finds the token owner |
+| `practice_tab.py` | Practice tab (Score Training, Around the Clock, Singles) and the cached `load_all_practice_data()` |
 | `singles_tab.py` | Singles Training sub-tab, called from `practice_tab.py` |
 | `coaching_page.py` | Coaching & Analytics tab |
-| `ui_helpers.py` | Mobile CSS, the shared chart palette (`colors()`, `seq_scale()`), `chart()` styling, `score_bands()`, `pct()`, and the `dartboard_ring()` / `segment_bars()` segment charts |
-| `doubles_section.py` | Double ring heatmap in the Double Trouble tab (ATC Doubles mode + estimated match checkouts) |
-| `around_tab.py`, `score_training_tab.py` | **Unused.** Nothing imports them; their logic was merged into `practice_tab.py`. Edit `practice_tab.py` instead |
+| `ui_helpers.py` | Mobile CSS, the shared chart palette (`colors()`, `seq_scale()`), `chart()` styling, `daily_trend()`, `score_bands()`, `pct()`, and the `dartboard_ring()` / `segment_bars()` segment charts |
+| `doubles_section.py` | Double ring heatmap in the Double Trouble tab (Doubles Training + ATC Doubles mode + estimated match checkouts) |
 
 ## Data
 
 - **Storage:** Turso (libSQL over HTTP) is used when `TURSO_DATABASE_URL` and `TURSO_AUTH_TOKEN` are set. Otherwise the code falls back to local SQLite `dart.db`. Every read path has to handle both backends.
 - **Match tables:** `matches`, `legs`, `throws` (schema is in `setup_database`).
-- **Practice tables:** `practice_sessions`, `practice_turns`, `around_sessions`, `around_targets`, `singles_sessions`, `singles_targets`. These were created by import scripts that have since been deleted.
+- **Practice tables:** `practice_sessions`, `practice_turns`, `around_sessions`, `around_targets`, `singles_sessions`, `singles_targets`, `doubles_sessions`, `doubles_targets`. Created and filled by `sync.py`. Versus sessions also store opponents and CPUs, so always filter to the connected player.
 - **Turso results:** `turso_query` returns `(columns, rows)`. Always build tables with `pd.DataFrame(rows, columns=cols)`. Passing only `rows` gives integer column names and silently breaks every column check.
 - **Timestamps:** practice tables store `started_at` as Unix seconds and are shown in `Europe/Istanbul` time. Match dates are stored as `"%Y-%m-%d %H:%M"` strings.
 
 ## Secrets and config
 
-- Secrets are read from `st.secrets` (`.streamlit/secrets.toml`) first, then from `.env`. Keys: `DARTCOUNTER_TOKEN`, `TURSO_DATABASE_URL`, `TURSO_AUTH_TOKEN`, plus `[credentials]` and `[cookie]` for `streamlit-authenticator`.
+- Secrets are read from `st.secrets` (`.streamlit/secrets.toml`) first, then from `.env`. Keys: `DARTCOUNTER_TOKEN`, `TURSO_DATABASE_URL`, `TURSO_AUTH_TOKEN`, `TOKEN_ENCRYPTION_KEY` (Fernet key), plus `[credentials]` and `[cookie]` for `streamlit-authenticator`.
+- **Connect DartCounter** (admin sidebar): a pasted token is checked against the API, encrypted with `TOKEN_ENCRYPTION_KEY`, and stored in the `app_settings` table. Connect also detects and stores the player's DartCounter user id and name, then runs a first sync. `load_token()` tries the stored token first, then `st.secrets`, then `.env`.
 - **Never read, print, log or commit secret values.** `secrets.toml`, `.streamlit/` and `.env` must stay out of git.
-- `.gitignore` has a missing newline (`screenshots/secrets.toml`), so the root `secrets.toml` and `.streamlit/` are **not** ignored right now. Check `git status` before any commit.
+- `.gitignore` ignores `secrets.toml` and `.streamlit/secrets.toml`. Still check `git status` before any commit.
 
 ## Auth
 
@@ -62,14 +63,13 @@ python -m py_compile *.py
 
 ## Conventions
 
-- UI text is in English and goes through `t()` in `app.py`. Code comments are often in Turkish; that's fine.
+- UI text is in English and goes through `t()` in `app.py` (currently a pass-through; there is no language toggle). Code comments are often in Turkish; that's fine.
 - Every Streamlit tab renders on each rerun, so keep data loading cached (`@st.cache_data`) and handle errors per tab. One missing table shouldn't take down the whole app.
 - After any import or fetch action, call `st.cache_data.clear()` before `st.rerun()`.
 - Don't make up placeholder data in charts. If data is missing, show an `st.info` message.
-- **Charts:** build them with `plotly.graph_objects`, render them with `ui_helpers.chart()`, and take colors from `ui_helpers.colors()` roles (`you` = player/adjusted, `alt` = second series, `neutral` = opponents). Don't force `template="plotly_dark"` or hard-code hex. Plot time on a real datetime axis. Never use dual y-axes; use small multiples instead. Use straight lines, not splines (sessions cluster minutes apart). Put metric explanations in `help=`, not in `delta=`.
+- **Charts:** build them with `plotly.graph_objects`, render them with `ui_helpers.chart()`, and take colors from `ui_helpers.colors()` roles (`you` = player/adjusted, `alt` = second series, `neutral` = opponents). Don't force `template="plotly_dark"` or hard-code hex. Plot time on a real datetime axis. Never use dual y-axes; use small multiples instead. Use straight lines, not splines (sessions cluster minutes apart). For trends over time use `ui_helpers.daily_trend()` (one point per day, min–max bar, overall-mean line, latest value labelled) instead of per-session dots with a rolling line, which stack up on busy days. Put metric explanations in `help=`, not in `delta=`.
 
-## Known broken (as of 2026-11-15)
+## Known limits (as of 2026-11-15)
 
-- The sidebar buttons call `list_all_matches.py` and `practice_import.py`, which are deleted. Restore them or move the fetch logic into `dartcounter_api.py`.
-- `pd.DataFrame(rows)` without column names in `singles_tab.py` and `coaching_page.py`.
-- `save_match` doesn't write atomically, so a failed import leaves a partial match that's never repaired.
+- Turso writes are one HTTP request per row, so a first sync of a long history takes several minutes.
+- `load_data()` in `app.py` always tries Turso first and falls back to `dart.db` on any error.

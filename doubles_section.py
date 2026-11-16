@@ -1,7 +1,9 @@
 """
 Double ring heatmap & sector reliability.
 
-Combines two sources of double attempts into per-dart hit rates per double:
+Combines three sources of double attempts into per-dart hit rates per double:
+  - Doubles Training sessions: exact per-dart data. Each target is thrown at
+    until it is hit; a hit is a dart in the double of the target number.
   - Around the Clock sessions played in Doubles mode: each target is hit once
     after `darts_needed` darts  ->  1 hit / darts_needed darts.
   - Match checkouts: a visit that starts on an even score <= 40 (or 50) is aimed
@@ -13,7 +15,8 @@ import pandas as pd
 import streamlit as st
 
 import ui_helpers
-from practice_tab import load_all_practice_data
+from practice_tab import load_all_practice_data, read_table
+from dartcounter_api import only_player
 
 MIN_N = 5
 
@@ -31,14 +34,12 @@ def _match_doubles(efe_throws):
     return df.groupby("target")[["hits", "attempts"]].sum().reset_index()
 
 
-def _atc_doubles(player):
+def _atc_doubles(player, player_id=None):
     _, _, sessions, targets = load_all_practice_data()
     needed = {"atc_user_id", "target", "darts_needed"}
     if sessions.empty or targets.empty or not needed.issubset(targets.columns):
         return pd.DataFrame(columns=["target", "hits", "attempts"])
-    s = sessions
-    if "player_name" in s.columns:
-        s = s[s["player_name"] == player]
+    s = only_player(sessions, player_id, player)
     if "is_cpu" in s.columns:
         s = s[s["is_cpu"].fillna(0).astype(int) == 0]
     if "number_segment" in s.columns:
@@ -51,6 +52,26 @@ def _atc_doubles(player):
     return t.groupby("target")[["hits", "attempts"]].sum().reset_index()
 
 
+@st.cache_data(ttl=60)
+def _load_doubles_training():
+    return (read_table("SELECT * FROM doubles_sessions"),
+            read_table("SELECT * FROM doubles_targets"))
+
+
+def _training_doubles(player, player_id=None):
+    sessions, targets = _load_doubles_training()
+    needed = {"doubles_user_id", "target", "darts_thrown", "hits"}
+    if sessions.empty or targets.empty or not needed.issubset(targets.columns):
+        return pd.DataFrame(columns=["target", "hits", "attempts"])
+    s = only_player(sessions, player_id, player)
+    t = targets[targets["doubles_user_id"].isin(s["doubles_user_id"])].copy()
+    if t.empty:
+        return pd.DataFrame(columns=["target", "hits", "attempts"])
+    t["hits"] = pd.to_numeric(t["hits"], errors="coerce").fillna(0)
+    t["attempts"] = pd.to_numeric(t["darts_thrown"], errors="coerce").fillna(0)
+    return t.groupby("target")[["hits", "attempts"]].sum().reset_index()
+
+
 def _confidence(darts):
     if darts >= 500:
         return "High"
@@ -59,11 +80,12 @@ def _confidence(darts):
     return "Low"
 
 
-def render(efe_throws, player, t):
+def render(efe_throws, player, t, player_id=None):
     st.subheader(t("🎯 Double Ring Heatmap & Sector Reliability"))
 
     sources = {
-        "Combined": t("Combined (ATC Doubles + match checkouts)"),
+        "Combined": t("Combined (all sources)"),
+        "Training": t("Doubles Training"),
         "ATC": t("Around the Clock — Doubles mode"),
         "Match": t("Match checkouts (estimated)"),
     }
@@ -71,19 +93,23 @@ def render(efe_throws, player, t):
                       horizontal=True, key="double_source")
 
     match_df = _match_doubles(efe_throws)
-    atc_df = _atc_doubles(player)
-    if choice == "ATC":
+    atc_df = _atc_doubles(player, player_id)
+    training_df = _training_doubles(player, player_id)
+    if choice == "Training":
+        stats = training_df
+    elif choice == "ATC":
         stats = atc_df
     elif choice == "Match":
         stats = match_df
     else:
-        stats = (pd.concat([match_df, atc_df]).groupby("target")[["hits", "attempts"]]
+        stats = (pd.concat([match_df, atc_df, training_df]).groupby("target")[["hits", "attempts"]]
                  .sum().reset_index())
 
     if stats.empty or stats["attempts"].sum() == 0:
         st.info(t("No double attempts recorded for this source yet."))
         return
 
+    stats = stats.astype({"hits": float, "attempts": float})  # empty sources can leave object dtype
     stats = stats[stats["attempts"] > 0].copy()
     stats["target"] = stats["target"].astype(int)
     stats["value"] = stats["hits"] / stats["attempts"]
@@ -119,6 +145,6 @@ def render(efe_throws, player, t):
     with right:
         ui_helpers.segment_bars(stats, t("Hit rate per double"), prefix="D",
                                 value_label=t("Hit rate"), key="double_bars", min_n=MIN_N)
-    if choice != "ATC":
+    if choice in ("Combined", "Match"):
         st.caption(t("Match checkouts are estimated per visit: every dart in a visit that starts on a "
                      "finishable double counts as an attempt at that double."))

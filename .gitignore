@@ -29,3 +29,7 @@ screenshots/
 # Streamlit secrets - never commit
 secrets.toml
 .streamlit/secrets.toml
+
+# Browser network captures (contain auth tokens)
+*.har
+HAR.json
