@@ -7,6 +7,8 @@ import sqlite3
 import pandas as pd
 import plotly.graph_objects as go
 import streamlit_authenticator as stauth
+from freshness import drop_stale_modules
+drop_stale_modules()  # before the project imports: never mix new and old modules after a push
 import practice_tab
 import coaching_page
 import ui_helpers
