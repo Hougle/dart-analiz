@@ -20,7 +20,7 @@ Tests cover the calculations (adjusted average, double zone, darts stats, double
 python -m unittest discover -s tests -t .
 ```
 
-For UI changes, also run the app and open the affected tab at 375 px (phone), 820 px with the sidebar open (tablet), and desktop. Text cut off with "…" and side-by-side cards or charts that are too narrow show up mostly at the in-between width. A quick compile check:
+For UI changes, also run the app and open the affected tab at 375 px (phone), 820 px (tablet), and desktop. Text cut off with "…" and side-by-side cards or charts that are too narrow show up mostly at the in-between width. A quick compile check:
 
 ```bash
 python -m py_compile *.py
@@ -30,12 +30,12 @@ python -m py_compile *.py
 
 | File | Role |
 |---|---|
-| `app.py` | Entry point: auth, sidebar actions, data loading, period picker, the 5 main tabs (Home, Matches, Doubles, Practice, Coaching) |
+| `app.py` | Entry point: data loading, the header (with the "Synced …" badge and Sync button, `run_sync`), period picker, the 5 main tabs (Home, Matches, Doubles, Practice, Coaching). There is no sidebar |
 | `match_stats.py` | Pure match calculations, no Streamlit: `mark_double_attempts`, `adjusted_stats`, `per_match_stats`, `darts_stats` (first 9, checkout %, highest checkout, best 501 leg, 180/140+/100+). Tested in `tests/` |
 | `playing_time.py` | Time played: `sessions()` (every match and practice session with its real length), `weekly()` (minutes per Monday–Sunday week and activity), and the weekly stacked bar chart on Home |
 | `home_tab.py` | Home tab: this week vs last week, best/weakest double, one trend, recent activity, last sync |
 | `dartcounter_api.py` | DartCounter API client, Turso HTTP client (`turso_query`, `turso_execute`), schema setup, match import. Also a CLI: `python dartcounter_api.py <match URL or ID>` |
-| `sync.py` | Imports the connected player's whole DartCounter history (matches, Score Training, Around the Clock, Singles, Doubles Training), skipping what's stored. `detect_player(token)` finds the token owner |
+| `sync.py` | Imports the connected player's whole DartCounter history (matches, Score Training, Around the Clock, Singles, Doubles Training), skipping what's stored. `detect_player(token)` finds the token owner. CLI: `python sync.py` (this year and last) or `python sync.py --all`; saves the sync time and exits non-zero on errors |
 | `practice_tab.py` | Practice tab (Score Training, Around the Clock, Singles, Doubles Training), `session_table()` and the cached `load_all_practice_data()` |
 | `doubles_training_tab.py` | Doubles Training sub-tab, called from `practice_tab.py` |
 | `singles_tab.py` | Singles Training sub-tab, called from `practice_tab.py` |
@@ -54,17 +54,15 @@ python -m py_compile *.py
 
 ## Secrets and config
 
-- Secrets are read from `st.secrets` (`.streamlit/secrets.toml`) first, then from `.env`. Keys: `DARTCOUNTER_TOKEN`, `TURSO_DATABASE_URL`, `TURSO_AUTH_TOKEN`, `TOKEN_ENCRYPTION_KEY` (Fernet key), plus `[credentials]` and `[cookie]` for `streamlit-authenticator`.
-- **Connect DartCounter** (admin sidebar): a pasted token is checked against the API, encrypted with `TOKEN_ENCRYPTION_KEY`, and stored in the `app_settings` table. Connect also detects and stores the player's DartCounter user id and name, then runs a first sync. `load_token()` tries the stored token first, then `st.secrets`, then `.env`.
+- Secrets are read from `st.secrets` (`.streamlit/secrets.toml`) first, then from `.env`. Keys: `DARTCOUNTER_TOKEN`, `TURSO_DATABASE_URL`, `TURSO_AUTH_TOKEN`, and optionally `TOKEN_ENCRYPTION_KEY` (Fernet key, only to read a token stored encrypted in `app_settings` by the former Connect panel). `load_token()` tries a stored token first, then `st.secrets`, then `.env`. `[credentials]` and `[cookie]` in older secrets files are no longer used.
 - **Never read, print, log or commit secret values.** `secrets.toml` (including `.streamlit/secrets.toml`) and `.env` must stay out of git. `.streamlit/config.toml` holds the theme, has no secrets and is committed.
 - `.gitignore` ignores `secrets.toml` and `.streamlit/secrets.toml`. Still check `git status` before any commit.
 
-## Auth
+## Updating the data
 
-- `streamlit-authenticator` handles admin login. The app keeps its own `st.session_state["role"]`, which is `visitor` by default or the `role` field from the credentials.
-- Sidebar fetch and import actions are shown only to `admin`.
-- Logout must also clear the authenticator's state (`authenticator.logout()`); resetting `role` alone isn't enough.
-- `requirements.txt` pins `streamlit-authenticator==0.3.3`, but the local venv has 0.4.2. Their APIs differ, so write code that works on the pinned (deployed) version.
+- There is no login. The only control that changes data is the **Sync** button next to the "Synced …" badge in the header. It's public, so `run_sync` in `app.py` allows one sync per 2 minutes (`SYNC_COOLDOWN`, start time stored as `app_settings.sync_started`); a second press within that time just shows a toast. After a sync it clears the caches and reruns, so new games and the new sync time show right away.
+- `python sync.py` does the same from a terminal (it writes to the same Turso database the live site reads). The site then shows new matches within 5 minutes (`load_data` cache) and the new sync time within a minute.
+- A DartCounter token can expire. If sync says "Token rejected", copy a fresh token into `DARTCOUNTER_TOKEN`.
 
 ## Domain rules
 
@@ -77,7 +75,6 @@ python -m py_compile *.py
 
 - UI text is in English and goes through `t()` in `app.py` (currently a pass-through; there is no language toggle). Code comments are often in Turkish; that's fine.
 - Every Streamlit tab renders on each rerun, so keep data loading cached (`@st.cache_data`) and handle errors per tab. One missing table shouldn't take down the whole app.
-- After any import or fetch action, call `st.cache_data.clear()` before `st.rerun()`.
 - **Period filter:** the picker at the top sets `st.session_state['period']`. Every tab except Home's "This week" row filters with `ui_helpers.in_period()` (practice tables by `started_at`, matches by `date_col='date'`). Show an `st.info` naming the period when it leaves nothing.
 - Tables: show dates with `ui_helpers.date_column()` (readable but sortable), plain column names, newest first. Use `width="stretch"`, not the deprecated `use_container_width`.
 - Don't make up placeholder data in charts. If data is missing, show an `st.info` message.

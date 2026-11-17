@@ -441,3 +441,36 @@ def sync_all(token, years=None, log=print):
         if match_conn:
             match_conn.close()
     return stats
+
+
+# ------------------------------------------------------------------ CLI
+def main(argv=None):
+    """python sync.py        -> this year and last year
+       python sync.py --all  -> the whole history
+    Writes to Turso when its credentials are set (the live site reads the same database)."""
+    import sys
+    from dartcounter_api import load_token, mark_synced
+
+    args = sys.argv[1:] if argv is None else argv
+    token = load_token()
+    if not token:
+        print("No DartCounter token found. Add DARTCOUNTER_TOKEN to .streamlit/secrets.toml or .env.")
+        return 1
+    year = datetime.now().year
+    years = None if "--all" in args else [year, year - 1]
+    print("Database:", "Turso" if _turso_available() else DB_PATH)
+    try:
+        stats = sync_all(token, years=years)
+    except PermissionError as e:
+        print(f"Token rejected: {e}")
+        return 1
+    new = sum(v for k, v in stats.items() if k != "errors")
+    print(f"Done: {new} new games ({stats}).")
+    if stats["errors"]:
+        return 1
+    mark_synced()
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

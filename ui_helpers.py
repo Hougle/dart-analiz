@@ -175,10 +175,6 @@ div[data-testid="stMainBlockContainer"] {{
 }}
 
 /* ---------- page header */
-.da-header {{
-    display: flex; align-items: center; justify-content: space-between; gap: 1rem;
-    flex-wrap: wrap; margin: 0 0 0.9rem 0;
-}}
 .da-brand {{ display: flex; align-items: center; gap: 0.8rem; }}
 .da-mark {{
     width: 40px; height: 40px; border-radius: 11px; flex: none;
@@ -197,6 +193,15 @@ div[data-testid="stMainBlockContainer"] {{
     color: var(--da-muted); font-size: 0.78rem; white-space: nowrap;
 }}
 .da-dot {{ width: 7px; height: 7px; border-radius: 50%; background: #22c55e; }}
+.st-key-da_header {{ margin-bottom: 0.4rem; row-gap: 0.75rem !important; }}
+.st-key-da_header [data-testid="stMarkdownContainer"] {{ margin-bottom: 0 !important; }}
+.st-key-da_sync button {{
+    min-height: 0 !important; padding: 0.28rem 0.65rem !important; border-radius: 999px !important;
+    border: 1px solid var(--da-border) !important; background: var(--da-card) !important;
+    color: var(--da-muted) !important; font-size: 0.78rem !important;
+}}
+.st-key-da_sync button:hover {{ color: var(--da-accent) !important; border-color: var(--da-accent) !important; }}
+.st-key-da_sync button p {{ font-size: 0.78rem !important; }}
 
 /* ---------- cards: metrics, charts, tables, expanders */
 div[data-testid="stMetric"] {{
@@ -404,16 +409,31 @@ def inject_theme_css():
 inject_mobile_css = inject_theme_css  # old name
 
 
-def page_header(player, last_sync=None):
-    """Brand mark, title and the player / last-sync line at the top of the page."""
+def page_header(player, last_sync=None, sync_button=False):
+    """Brand mark and title, with the "Synced …" badge and an optional Sync button on the right.
+
+    Returns True when the Sync button was pressed.
+    """
     from html import escape
-    sync = (f'<span class="da-pill"><span class="da-dot"></span>Synced {escape(last_sync)}</span>'
-            if last_sync else "")
-    st.markdown(
-        f'<div class="da-header"><div class="da-brand"><div class="da-mark">{_MARK}</div>'
-        f'<div><div class="da-title">DartAnaliz</div>'
-        f'<div class="da-sub">{escape(player)} · DartCounter performance</div></div></div>'
-        f'{sync}</div>', unsafe_allow_html=True)
+    clicked = False
+    row = st.container(horizontal=True, horizontal_alignment="distribute", vertical_alignment="center",
+                       gap="small", key="da_header")
+    with row:
+        st.markdown(
+            f'<div class="da-brand"><div class="da-mark">{_MARK}</div>'
+            f'<div><div class="da-title">DartAnaliz</div>'
+            f'<div class="da-sub">{escape(player)} · DartCounter performance</div></div></div>',
+            unsafe_allow_html=True, width="content")
+        right = st.container(horizontal=True, horizontal_alignment="right", vertical_alignment="center",
+                             gap="small", width="content", key="da_sync")
+        with right:
+            if last_sync:
+                st.markdown(f'<span class="da-pill"><span class="da-dot"></span>Synced {escape(last_sync)}</span>',
+                            unsafe_allow_html=True, width="content")
+            if sync_button:
+                clicked = st.button("Sync", icon=":material/sync:", key="sync_now", type="tertiary",
+                                    help="Import new games from DartCounter. Takes about a minute.")
+    return clicked
 
 
 def metric_grid(metrics, cols=7, key=None):

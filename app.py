@@ -6,7 +6,6 @@ import streamlit as st
 import sqlite3
 import pandas as pd
 import plotly.graph_objects as go
-import streamlit_authenticator as stauth
 from freshness import drop_stale_modules
 drop_stale_modules()  # before the project imports: never mix new and old modules after a push
 import practice_tab
@@ -21,7 +20,6 @@ st.set_page_config(page_title="DartAnaliz", page_icon=":material/target:", layou
 ui_helpers.inject_theme_css()
 
 DB_PATH = "dart.db"
-ENV_FILE = ".env"
 DEFAULT_PLAYER = "Efe"  # used until a DartCounter account is connected
 
 
@@ -35,112 +33,10 @@ def get_connected_player():
 PLAYER_ID, _connected_name = get_connected_player()
 PLAYER = _connected_name or DEFAULT_PLAYER
 
-# ============================================================
-# AUTHENTICATION (Admin Login)
-# ============================================================
-credentials = {
-    "usernames": {
-        username: dict(st.secrets["credentials"]["usernames"][username])
-        for username in st.secrets["credentials"]["usernames"]
-    }
-}
-cookie_config = {
-    "name": st.secrets["cookie"]["name"],
-    "key": st.secrets["cookie"]["key"],
-    "expiry_days": st.secrets["cookie"]["expiry_days"],
-}
-
-authenticator = stauth.Authenticate(
-    credentials,
-    cookie_config["name"],
-    cookie_config["key"],
-    cookie_config["expiry_days"],
-)
-
-if "role" not in st.session_state:
-    st.session_state["role"] = "visitor"
-    st.session_state["name"] = "Visitor"
-    st.session_state["username"] = None
 
 def t(s):
     """UI text hook. All text is English for now; a translation table can plug in here."""
     return s
-
-
-
-
-@st.cache_data(ttl=60, show_spinner=False)
-def check_token():
-    """Return (ok, source, updated_at). Source: 'connected', 'config' or None."""
-    import dartcounter_api
-    stored, updated = dartcounter_api.connected_token_info()
-    if stored:
-        return True, "connected", updated
-    try:
-        token = dartcounter_api.load_token()
-        if token and len(token) > 20:
-            return True, "config", None
-    except Exception:
-        pass
-    return False, None, None
-
-
-def connect_dartcounter_panel(token_ok, source, updated):
-    """Sidebar panel: paste a token, check it against DartCounter, store it encrypted."""
-    import dartcounter_api
-    title = t("Connect DartCounter") + (" · connected" if token_ok else "")
-    with st.expander(title, expanded=not token_ok):
-        if token_ok and source == "connected":
-            st.success(f"{t('Connected')} · {t('updated')} {updated}")
-        elif token_ok:
-            st.info(t("Using the token from the config file (.env / secrets). Connect here to replace it."))
-
-        if not dartcounter_api.encryption_ready():
-            st.warning(t("Add TOKEN_ENCRYPTION_KEY to secrets to store tokens from here. "
-                         "Generate one with: python -c \"from cryptography.fernet import Fernet; "
-                         "print(Fernet.generate_key().decode())\""))
-            return
-
-        with st.form("connect_dc", clear_on_submit=True):
-            token_in = st.text_input(t("DartCounter token"), type="password",
-                                     placeholder="12345678|AbCdEf...",
-                                     help=t("Paste the value after 'Bearer ' (see the steps below)."))
-            submitted = st.form_submit_button(t("Connect"), width="stretch", type="primary")
-        if submitted:
-            with st.spinner(t("Checking with DartCounter...")):
-                ok, msg, ident = dartcounter_api.validate_token(token_in)
-            if ok:
-                try:
-                    dartcounter_api.save_connected_token(token_in)
-                    dartcounter_api.save_connected_player(*ident)
-                    st.cache_data.clear()
-                    st.session_state["sync_now"] = True  # import their history right away
-                    st.success(t(msg))
-                    st.rerun()
-                except Exception as e:
-                    st.error(f"{t('Error')}: {e}")
-            else:
-                st.error(t(msg))
-
-        if source == "connected":
-            if st.button(t("Disconnect"), width="stretch"):
-                dartcounter_api.disconnect_token()
-                st.cache_data.clear()
-                st.rerun()
-
-        with st.popover(t("How to get the token"), icon=":material/help:", width="stretch"):
-            show_token_steps()
-
-
-def show_token_steps():
-    st.markdown(t("**1.** Log in to DartCounter in your browser: `https://app.dartcounter.net`"))
-    st.markdown(t("**2.** Open any match page (Statistics → a match)"))
-    st.markdown(t("**3.** Open Developer Tools with `F12` (Mac: `Cmd+Option+I`)"))
-    st.markdown(t("**4.** Click the **Network** tab and select the **Fetch/XHR** filter"))
-    st.markdown(t("**5.** Refresh the page"))
-    st.markdown(t("**6.** Click a request to `api.dartcounter.net` → **Headers**"))
-    st.markdown(t("**7.** Copy the `Authorization` value after `Bearer ` and paste it above"))
-    st.caption(t("Your DartCounter password is never needed. The token is stored encrypted."))
 
 
 @st.cache_data(ttl=300)
@@ -176,156 +72,56 @@ def clean_name(name):
     return re.sub(r'-[0-9a-f]{8}-[0-9a-f-]{20,}$', '', str(name))
 
 
-def run_sync():
-    """Import the connected player's DartCounter history, with live progress."""
-    import dartcounter_api
-    import sync
-    with st.status(t("Syncing with DartCounter..."), expanded=True) as status:
-        try:
-            stats = sync.sync_all(dartcounter_api.load_token(), log=status.write)
-        except PermissionError as e:
-            status.update(label=t("Token rejected"), state="error")
-            st.error(t(str(e)))
-            return
-        except Exception as e:
-            status.update(label=t("Sync failed"), state="error")
-            st.error(f"{t('Error')}: {e}")
-            return
-        new = (stats["matches"] + stats["score"] + stats["atc"] + stats["singles"]
-               + stats.get("doubles", 0))
-        status.update(label=f"{t('Sync done')}: {new} {t('new games')}", state="complete", expanded=False)
-    try:
-        dartcounter_api.mark_synced()
-    except Exception:
-        pass
-    st.success(f"{stats['matches']} {t('matches')} · {stats['score']} Score Training · "
-               f"{stats['atc']} Around the Clock · {stats['singles']} Singles · "
-               f"{stats.get('doubles', 0)} Doubles Training"
-               + (f" · {stats['errors']} {t('errors')}" if stats["errors"] else ""))
-    st.cache_data.clear()  # also refreshes the "last synced" time
-    if new:
-        st.rerun()
-
-
 @st.cache_data(ttl=60, show_spinner=False)
 def last_sync_time():
     import dartcounter_api
     return dartcounter_api.get_setting("last_sync")
 
 
-def refresh_cache():
+SYNC_COOLDOWN = 120  # seconds: the button is public, so repeated presses don't start new syncs
+
+
+def run_sync():
+    """Import new games from DartCounter with live progress, then reload the data."""
+    import time
+    import dartcounter_api
+    import sync
+    try:
+        started = float(dartcounter_api.get_setting("sync_started") or 0)
+    except ValueError:
+        started = 0
+    if time.time() - started < SYNC_COOLDOWN:
+        st.toast(t("A sync just ran. Try again in a couple of minutes."), icon=":material/schedule:")
+        return
+    dartcounter_api.save_setting("sync_started", str(time.time()))
+    with st.status(t("Syncing with DartCounter… this takes about a minute."), expanded=False) as status:
+        try:
+            stats = sync.sync_all(dartcounter_api.load_token(), log=status.write)
+        except PermissionError:
+            status.update(label=t("DartCounter rejected the token. It needs to be renewed."), state="error")
+            return
+        except Exception as e:
+            status.update(label=f"{t('Sync failed')}: {e}", state="error")
+            return
+        new = sum(v for k, v in stats.items() if k != "errors")
+        if stats["errors"]:
+            status.update(label=f"{t('Sync finished with errors')}: {new} {t('new games')}, "
+                                f"{stats['errors']} {t('errors')}", state="error")
+        else:
+            dartcounter_api.mark_synced()
+            status.update(label=f"{t('Sync done')}: {new} {t('new games')}", state="complete")
     st.cache_data.clear()
-
-
-# ============================================================
-# SIDEBAR
-# ============================================================
-with st.sidebar:
-    if st.session_state.get("role") == "visitor":
-        with st.expander(t("Admin login"), icon=":material/lock:", expanded=False):
-            authenticator.login(
-                location="main",  # "main" draws the form where it's called, i.e. inside this expander
-                key="admin_login",
-            )
-            
-            auth_status = st.session_state.get("authentication_status")
-            name_input = st.session_state.get("name")
-            username_input = st.session_state.get("username")
-            
-            if auth_status:
-                st.session_state["role"] = credentials["usernames"][username_input].get("role", "user")
-                st.session_state["name"] = name_input
-                st.session_state["username"] = username_input
-                st.rerun()
-            elif auth_status is False:
-                st.error(t("Invalid username or password"))
-    else:
-        st.success(f"{t('Signed in as')} {st.session_state.get('name', '')}", icon=":material/person:")
-        if st.button(t("Log out"), icon=":material/logout:", width="stretch"):
-            # Clear the authenticator's own state and cookie too; otherwise the
-            # next rerun sees authentication_status=True and logs straight back in.
-            try:
-                authenticator.logout(location="unrendered")
-            except Exception:
-                pass
-            st.session_state["authentication_status"] = None
-            st.session_state["role"] = "visitor"
-            st.session_state["name"] = "Visitor"
-            st.session_state["username"] = None
-            st.rerun()
-
-    st.divider()
-
-    token_ok, token_source, token_updated = check_token()
-    if st.session_state.get("role") == "admin":
-        connect_dartcounter_panel(token_ok, token_source, token_updated)
-        st.divider()
-    elif token_ok:
-        st.success(t("DartCounter connected"), icon=":material/check_circle:")
-    else:
-        st.info(t("DartCounter is not connected yet. An admin can connect it from the sidebar."))
-
-    if st.session_state.get("role") == "admin":
-        st.header(t("Actions"))
-
-        if token_ok:
-            st.caption(t("Imports every match and practice session from DartCounter. "
-                         "Already-stored games are skipped, so syncing again is quick."))
-            if st.button(t("Sync DartCounter data"), icon=":material/sync:", width="stretch", type="primary") \
-                    or st.session_state.pop("sync_now", False):
-                run_sync()
-            st.divider()
-
-        st.subheader(t("Add a match by URL"))
-        url_input = st.text_input(
-            t("DartCounter match URL:"),
-            placeholder="https://app.dartcounter.net/statistics/match/games/...",
-            key="url_input"
-        )
-        if st.button(t("Add match"), icon=":material/add:", width="stretch"):
-            if not token_ok:
-                st.error(t("A token is required first."))
-            elif url_input.strip():
-                with st.spinner(t("Downloading...")):
-                    try:
-                        import dartcounter_api
-                        data = dartcounter_api.fetch_match(
-                            dartcounter_api.parse_match_id(url_input.strip()), dartcounter_api.load_token())
-                        dartcounter_api.setup_database()
-                        conn = None if dartcounter_api._turso_available() else dartcounter_api.get_db_connection()
-                        try:
-                            added = dartcounter_api.save_match(conn, data)
-                        finally:
-                            if conn is not None:
-                                conn.close()
-                        if added:
-                            st.success(t("Match added!"))
-                            refresh_cache()
-                            st.rerun()
-                        else:
-                            st.info(t("This match is already stored (or has fewer than two players)."))
-                    except Exception as e:
-                        st.error(f"{t('Error')}: {e}")
-            else:
-                st.warning(t("URL is empty."))
-
-        st.divider()
-
-    st.caption(f"{t('Player')}: **{PLAYER}**")
-    _synced = last_sync_time()
-    st.caption(f"{t('Last synced')}: " + (_synced or t("not from the app yet")))
-    import dartcounter_api as _dc
-    st.caption(f"{t('Database')}: " + ("Turso" if _dc._turso_available() else f"`{DB_PATH}`"))
-# ============================================================
+    st.rerun()
 
 
 # Page header and the period picker sit above every tab.
-ui_helpers.page_header(PLAYER, last_sync_time())
+if ui_helpers.page_header(PLAYER, last_sync_time(), sync_button=True):
+    run_sync()
 ui_helpers.period_picker()
 
 matches, throws, legs = load_data()
 if matches.empty:
-    st.warning(t("No data yet. Connect your DartCounter account in the sidebar, then press Sync DartCounter data."))
+    st.warning(t("No data yet. Run `python sync.py` to import your DartCounter history."))
     st.stop()
 
 def is_p1(row):
