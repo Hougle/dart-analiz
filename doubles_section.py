@@ -149,7 +149,7 @@ def _reliable_doubles(stats, t):
                       + ": %{customdata[2]}%<extra></extra>"))
     fig.update_layout(title=t("Doubles ranked by reliability"), showlegend=False,
                       xaxis=dict(title=t("Hit rate"), tickformat=".0%",
-                                 range=[0, max(r["value"].max() * 1.35, 0.05)]),
+                                 range=[0, max(r["value"].max() * 1.75, 0.05)]),  # room for the label on a phone
                       yaxis=dict(title="", type="category"))
     ui_helpers.chart(fig, key="reliable_doubles", height=max(260, 30 * len(r) + 110),
                      margin=dict(t=56, b=40, l=64, r=20))
@@ -203,15 +203,16 @@ def render(efe_throws, player, t, player_id=None):
     c1, c2, c3, c4 = st.columns(4)
     c1.metric(t("Overall double hit rate"), ui_helpers.pct(hits / darts * 100),
               help=t("Hits divided by darts thrown at doubles.") + f" {hits} / {darts}")
-    if not rated.empty:
-        # Same confidence-adjusted measure as the ranking below, so the two agree.
-        reliable = [_wilson_low(h, n) for h, n in zip(rated["hits"], rated["attempts"])]
-        best = rated.iloc[max(range(len(reliable)), key=reliable.__getitem__)]
-        worst = rated.loc[rated["value"].idxmin()]
+    # Same ranking as Home and the "Most reliable doubles" list (default 20 darts), so they agree.
+    top = ranked(stats, 20) if not stats.empty else stats
+    if len(top) >= 2:
+        best, worst = top.iloc[0], top.iloc[-1]
         c2.metric(t("Most reliable double"), name(best["target"]),
-                  help=f"{ui_helpers.pct(best['value'] * 100)} · {int(best['hits'])}/{int(best['attempts'])}")
+                  help=f"{ui_helpers.pct(best['value'] * 100)} · {int(best['hits'])}/{int(best['attempts'])} · "
+                       + t("highest confidence-adjusted hit rate among doubles with 20+ darts"))
         c3.metric(t("Hardest double"), name(worst["target"]),
-                  help=f"{ui_helpers.pct(worst['value'] * 100)} · {int(worst['hits'])}/{int(worst['attempts'])}")
+                  help=f"{ui_helpers.pct(worst['value'] * 100)} · {int(worst['hits'])}/{int(worst['attempts'])} · "
+                       + t("lowest confidence-adjusted hit rate among doubles with 20+ darts"))
     else:
         c2.metric(t("Most reliable double"), "–")
         c3.metric(t("Hardest double"), "–")

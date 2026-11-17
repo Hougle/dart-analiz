@@ -204,6 +204,31 @@ div[data-testid="stMetric"] {{
     border-radius: 12px; padding: 0.85rem 1rem 0.8rem; box-shadow: var(--da-shadow);
     height: 100%;
 }}
+/* Metric rows wrap whenever a card would get narrower than 150px, at any screen width
+   (e.g. a tablet or small laptop with the sidebar open), instead of cutting labels to "Mat…". */
+div[data-testid="stHorizontalBlock"]:has(div[data-testid="stMetric"]) {{ flex-wrap: wrap !important; row-gap: 0.75rem; }}
+div[data-testid="stHorizontalBlock"]:has(div[data-testid="stMetric"]) > div[data-testid="stColumn"] {{
+    min-width: 150px !important; flex: 1 1 150px !important;
+}}
+/* Side-by-side bordered cards (coaching priorities) wrap below 220px each. */
+div[data-testid="stHorizontalBlock"]:has(div[data-testid="stVerticalBlockBorderWrapper"]):not(:has(div[data-testid="stMetric"])) {{
+    flex-wrap: wrap !important; row-gap: 0.75rem;
+}}
+div[data-testid="stHorizontalBlock"]:has(div[data-testid="stVerticalBlockBorderWrapper"]):not(:has(div[data-testid="stMetric"])) > div[data-testid="stColumn"] {{
+    min-width: 220px !important; flex: 1 1 220px !important;
+}}
+/* Long metric values ("Doubles accuracy", "50 darts at D17") and labels wrap instead of
+   being cut off with "…", at every width. */
+div[data-testid="stMetricValue"], div[data-testid="stMetricValue"] > div,
+div[data-testid="stMetricValue"] p, [data-testid="stMetricLabel"] p {{
+    white-space: normal !important; overflow: visible !important; text-overflow: clip !important;
+    line-height: 1.25;
+}}
+/* Charts side by side stack when each would be narrower than 320px. */
+div[data-testid="stHorizontalBlock"]:has(div[data-testid="stPlotlyChart"]) {{ flex-wrap: wrap !important; row-gap: 0.75rem; }}
+div[data-testid="stHorizontalBlock"]:has(div[data-testid="stPlotlyChart"]) > div[data-testid="stColumn"] {{
+    min-width: 320px !important; flex: 1 1 320px !important;
+}}
 /* Metric cards in one row share the tallest card's height. */
 div[data-testid="stHorizontalBlock"]:has(div[data-testid="stMetric"]) {{ align-items: stretch; }}
 div[data-testid="stHorizontalBlock"]:has(div[data-testid="stMetric"]) > div[data-testid="stColumn"] > div,
@@ -211,7 +236,7 @@ div[data-testid="stHorizontalBlock"]:has(div[data-testid="stMetric"]) div[data-t
 div[data-testid="stHorizontalBlock"]:has(div[data-testid="stMetric"]) div[data-testid="stElementContainer"]:has(> div > div[data-testid="stMetric"]) {{
     height: 100%;
 }}
-div[data-testid="stMetricLabel"] p {{
+[data-testid="stMetricLabel"] p {{
     color: var(--da-muted); font-size: 0.78rem; font-weight: 500; letter-spacing: 0.01em;
 }}
 div[data-testid="stMetricValue"] {{ letter-spacing: -0.02em; }}
@@ -324,12 +349,7 @@ section[data-testid="stSidebar"] h2, section[data-testid="stSidebar"] h3 {{
     }}
     div[data-testid="stMetric"] {{ padding: 0.65rem 0.75rem; }}
     div[data-testid="stMetricValue"] {{ font-size: 1.2rem !important; }}
-    /* Long values (e.g. "Doubles accuracy") wrap instead of being cut off with "…". */
-    div[data-testid="stMetricValue"], div[data-testid="stMetricValue"] > div {{
-        white-space: normal !important; overflow: visible !important; text-overflow: clip !important;
-        line-height: 1.25;
-    }}
-    div[data-testid="stMetricLabel"] p {{ font-size: 0.72rem !important; }}
+    [data-testid="stMetricLabel"] p {{ font-size: 0.72rem !important; }}
     div[data-testid="stButtonGroup"] button {{ padding: 0.25rem 0.55rem !important; min-height: 2rem !important; }}
     div[data-testid="stButtonGroup"] button p {{ font-size: 0.8rem !important; }}
     div[data-testid="stTabs"] [role="tablist"] {{ overflow-x: auto !important; flex-wrap: nowrap !important; scrollbar-width: none; }}

@@ -644,10 +644,11 @@ with tab_doubles:
         col1.metric(t("Double-zone turns"), int(total_dbl),
                     help=t("Turns from the moment the remaining score first reaches 40 or less (or 50)."))
         col2.metric(t("Turns without a checkout"), int(total_failed))
-        success_rate = (total_dbl - total_failed) / total_dbl * 100
-        col3.metric(t("Checkout rate per turn"), ui_helpers.pct(success_rate),
-                    help=t("Double-zone turns (up to 3 darts) that ended in a checkout. "
-                           "The ring below counts single darts, so its hit rate is lower."))
+        col3.metric(t("Checkout %"), ui_helpers.pct(ds['checkout']) if ds['checkout'] is not None else "–",
+                    help=t("Same as on the Matches tab: legs you finished ÷ turns where you could finish "
+                           "(double-zone turns plus any finish from higher).")
+                         + f" {ds['checkouts']} / {ds['checkout_chances']}. "
+                         + t("The ring below counts single darts, so its hit rate is lower."))
 
     doubles_section.render(period_throws, PLAYER, t, player_id=PLAYER_ID)
 
