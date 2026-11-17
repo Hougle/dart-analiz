@@ -432,7 +432,7 @@ def page_header(player, last_sync=None, sync_button=False):
                             unsafe_allow_html=True, width="content")
             if sync_button:
                 clicked = st.button("Sync", icon=":material/sync:", key="sync_now", type="tertiary",
-                                    help="Import new games from DartCounter. Takes about a minute.")
+                                    help="Import new games from DartCounter. Takes a few minutes.")
     return clicked
 
 

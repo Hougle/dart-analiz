@@ -94,7 +94,7 @@ def run_sync():
         st.toast(t("A sync just ran. Try again in a couple of minutes."), icon=":material/schedule:")
         return
     dartcounter_api.save_setting("sync_started", str(time.time()))
-    with st.status(t("Syncing with DartCounter… this takes about a minute."), expanded=False) as status:
+    with st.status(t("Syncing with DartCounter… this takes a few minutes."), expanded=False) as status:
         try:
             stats = sync.sync_all(dartcounter_api.load_token(), log=status.write)
         except PermissionError:
